@@ -45,6 +45,8 @@ int servo_values[SERVO_COUNT] = {0};
 #define RCSOFTCHECK(fn) do { rcl_ret_t rc = fn; if ((rc != RCL_RET_OK)) { \
     ESP_LOGW(TAG, "Soft failure at line %d: %ld", __LINE__, (long)rc); }} while(0)
 
+uint32_t angle_to_duty(uint8_t angle_deg);
+
 // Initialisation LEDC
 void init_servos()
 {
@@ -66,13 +68,15 @@ void init_servos()
     };
     ledc_timer_config(&timer_low);
 
+    uint32_t neutral_duty = angle_to_duty(90);  
+
     for (int i = 0; i < SERVO_COUNT; i++) {
         ledc_channel_config_t channel = {
             .gpio_num = servo_pins[i],
             .speed_mode = (i < 8) ? LEDC_HIGH_SPEED_MODE : LEDC_LOW_SPEED_MODE,
             .channel = i % 8,
             .timer_sel = (i < 8) ? LEDC_TIMER_HIGH : LEDC_TIMER_LOW,
-            .duty = 0,
+            .duty = neutral_duty,
             .hpoint = 0
         };
         ledc_channel_config(&channel);
