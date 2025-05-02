@@ -1,0 +1,9 @@
+/build
+/install
+/log
+.vscode
+*.pyc
+*.o
+*.elf
+sdkconfig
+sdkconfig.old
