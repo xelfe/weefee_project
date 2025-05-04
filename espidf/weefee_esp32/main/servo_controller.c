@@ -1,0 +1,92 @@
+#include <string.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include "freertos/FreeRTOS.h"
+#include "freertos/task.h"
+#include "esp_log.h"
+#include "esp_system.h"
+#include "driver/ledc.h"
+#include "servo_controller.h"
+
+static const char *TAG = "servo_controller";
+
+// GPIOs used for servo control
+static const int servo_pins[SERVO_COUNT] = {
+    2, 4, 5, 12, 13, 14,
+    15, 16, 17, 18, 19, 21
+};
+
+// Servo values storage
+static int servo_values[SERVO_COUNT] = {0};
+
+// Initialize the LEDC timers and channels for PWM control
+void setup_servos() {
+    // High-speed timer for first 8 servos
+    ledc_timer_config_t timer_high = {
+        .speed_mode = LEDC_HIGH_SPEED_MODE,
+        .timer_num = LEDC_TIMER_HIGH,
+        .duty_resolution = LEDC_TIMER_BIT,
+        .freq_hz = SERVO_FREQ,
+        .clk_cfg = LEDC_AUTO_CLK
+    };
+    ledc_timer_config(&timer_high);
+
+    // Low-speed timer for remaining 4 servos
+    ledc_timer_config_t timer_low = {
+        .speed_mode = LEDC_LOW_SPEED_MODE,
+        .timer_num = LEDC_TIMER_LOW,
+        .duty_resolution = LEDC_TIMER_BIT,
+        .freq_hz = SERVO_FREQ,
+        .clk_cfg = LEDC_AUTO_CLK
+    };
+    ledc_timer_config(&timer_low);
+
+    // Configure LEDC channels
+    for (int i = 0; i < SERVO_COUNT; i++) {
+        ledc_channel_config_t channel = {
+            .gpio_num = servo_pins[i],
+            .speed_mode = (i < 8) ? LEDC_HIGH_SPEED_MODE : LEDC_LOW_SPEED_MODE,
+            .channel = (i < 8) ? i : (i - 8),
+            .timer_sel = (i < 8) ? LEDC_TIMER_HIGH : LEDC_TIMER_LOW,
+            .duty = 0,
+            .hpoint = 0
+        };
+        ledc_channel_config(&channel);
+    }
+}
+
+// Converts angle (0-180°) to PWM duty cycle
+uint32_t angle_to_duty(int angle) {
+    if (angle < 0) angle = 0;
+    if (angle > 180) angle = 180;
+    uint32_t us = SERVO_MIN_PULSEWIDTH + ((SERVO_MAX_PULSEWIDTH - SERVO_MIN_PULSEWIDTH) * angle / 180);
+    uint32_t duty = (1 << LEDC_TIMER_BIT) * us / (1000000 / SERVO_FREQ);
+    return duty;
+}
+
+// Applies servo angles
+void apply_servo_positions(const int positions[SERVO_COUNT]) {
+    for (int i = 0; i < SERVO_COUNT; i++) {
+        uint32_t duty = angle_to_duty(positions[i]);
+        ledc_set_duty(i < 8 ? LEDC_HIGH_SPEED_MODE : LEDC_LOW_SPEED_MODE,
+                      i < 8 ? i : (i - 8), duty);
+        ledc_update_duty(i < 8 ? LEDC_HIGH_SPEED_MODE : LEDC_LOW_SPEED_MODE,
+                         i < 8 ? i : (i - 8));
+        ESP_LOGI(TAG, "Servo %d set to %d° (duty=%lu)", i, positions[i], duty);
+    }
+}
+
+// Updates the servo values array
+void set_servo_values(const int new_values[SERVO_COUNT]) {
+    memcpy(servo_values, new_values, SERVO_COUNT * sizeof(int));
+}
+
+// Returns a pointer to the servo values array
+const int* get_servo_values(void) {
+    return servo_values;
+}
+
+// Returns a pointer to the servo pins array
+const int* get_servo_pins(void) {
+    return servo_pins;
+}

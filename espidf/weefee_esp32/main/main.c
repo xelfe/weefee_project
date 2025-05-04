@@ -7,6 +7,7 @@
 #include "esp_log.h"
 #include "esp_system.h"
 #include "driver/ledc.h"
+#include "servo_controller.h"  // Include the new header file
 
 // micro-ROS includes
 #include <uros_network_interfaces.h>
@@ -27,98 +28,9 @@ static const char *TAG = "weefee_main";
 #define RCCHECK(fn) { rcl_ret_t rc = fn; if((rc != RCL_RET_OK)) { ESP_LOGE(TAG, "Failed status on line %d: %d", __LINE__, (int)rc); vTaskDelete(NULL); }}
 #define RCSOFTCHECK(fn) { rcl_ret_t rc = fn; if((rc != RCL_RET_OK)) { ESP_LOGW(TAG, "Non-fatal error on line %d: %d", __LINE__, (int)rc); }}
 
-// Constants for servo control
-#define SERVO_COUNT 12
-#define SERVO_MIN_PULSEWIDTH 500
-#define SERVO_MAX_PULSEWIDTH 2500
-#define SERVO_FREQ 50
-
-#define LEDC_TIMER_BIT LEDC_TIMER_13_BIT
-#define LEDC_TIMER_HIGH LEDC_TIMER_0
-#define LEDC_TIMER_LOW LEDC_TIMER_1
-
-// GPIOs used for servo control
-const int servo_pins[SERVO_COUNT] = {
-    2, 4, 5, 12, 13, 14,
-    15, 16, 17, 18, 19, 21
-};
-
-// Servo values storage
-int servo_values[SERVO_COUNT] = {0};
-
 // micro-ROS subscription and message
 rcl_subscription_t subscriber;
 std_msgs__msg__Int32MultiArray servo_msg;
-
-// Initialize the LEDC timers and channels for PWM control
-void setup_servos() {
-    // High-speed timer for first 8 servos
-    ledc_timer_config_t timer_high = {
-        .speed_mode = LEDC_HIGH_SPEED_MODE,
-        .timer_num = LEDC_TIMER_HIGH,
-        .duty_resolution = LEDC_TIMER_BIT,
-        .freq_hz = SERVO_FREQ,
-        .clk_cfg = LEDC_AUTO_CLK
-    };
-    ledc_timer_config(&timer_high);
-
-    // Low-speed timer for remaining 4 servos
-    ledc_timer_config_t timer_low = {
-        .speed_mode = LEDC_LOW_SPEED_MODE,
-        .timer_num = LEDC_TIMER_LOW,
-        .duty_resolution = LEDC_TIMER_BIT,
-        .freq_hz = SERVO_FREQ,
-        .clk_cfg = LEDC_AUTO_CLK
-    };
-    ledc_timer_config(&timer_low);
-
-    // Configure LEDC channels
-    for (int i = 0; i < SERVO_COUNT; i++) {
-        ledc_channel_config_t channel = {
-            .gpio_num = servo_pins[i],
-            .speed_mode = (i < 8) ? LEDC_HIGH_SPEED_MODE : LEDC_LOW_SPEED_MODE,
-            .channel = (i < 8) ? i : (i - 8),
-            .timer_sel = (i < 8) ? LEDC_TIMER_HIGH : LEDC_TIMER_LOW,
-            .duty = 0,
-            .hpoint = 0
-        };
-        ledc_channel_config(&channel);
-    }
-}
-
-// Converts angle (0-180°) to PWM duty cycle
-uint32_t angle_to_duty(int angle) {
-    if (angle < 0) angle = 0;
-    if (angle > 180) angle = 180;
-    uint32_t us = SERVO_MIN_PULSEWIDTH + ((SERVO_MAX_PULSEWIDTH - SERVO_MIN_PULSEWIDTH) * angle / 180);
-    uint32_t duty = (1 << LEDC_TIMER_BIT) * us / (1000000 / SERVO_FREQ);
-    return duty;
-}
-
-// Applies servo angles
-void apply_servo_positions(const int positions[SERVO_COUNT]) {
-    for (int i = 0; i < SERVO_COUNT; i++) {
-        uint32_t duty = angle_to_duty(positions[i]);
-        ledc_set_duty(i < 8 ? LEDC_HIGH_SPEED_MODE : LEDC_LOW_SPEED_MODE,
-                      i < 8 ? i : (i - 8), duty);
-        ledc_update_duty(i < 8 ? LEDC_HIGH_SPEED_MODE : LEDC_LOW_SPEED_MODE,
-                         i < 8 ? i : (i - 8));
-        ESP_LOGI(TAG, "Servo %d set to %d° (duty=%lu)", i, positions[i], duty);
-    }
-}
-
-// Called when new servo positions are received
-void subscription_callback(const void *msgin) {
-    const std_msgs__msg__Int32MultiArray *msg = (const std_msgs__msg__Int32MultiArray *)msgin;
-    if (msg->data.size == SERVO_COUNT) {
-        for (int i = 0; i < SERVO_COUNT; i++) {
-            servo_values[i] = msg->data.data[i];
-        }
-        apply_servo_positions(servo_values);
-    } else {
-        ESP_LOGW(TAG, "Invalid servo command length: %d", (int)msg->data.size);
-    }
-}
 
 // Initializes the servo_msg memory
 void init_servo_msg() {
@@ -130,6 +42,21 @@ void init_servo_msg() {
     servo_msg.layout.dim.size = 0;
     servo_msg.layout.dim.data = NULL;
     servo_msg.layout.data_offset = 0;
+}
+
+// Called when new servo positions are received
+void subscription_callback(const void *msgin) {
+    const std_msgs__msg__Int32MultiArray *msg = (const std_msgs__msg__Int32MultiArray *)msgin;
+    if (msg->data.size == SERVO_COUNT) {
+        int servo_positions[SERVO_COUNT];
+        for (int i = 0; i < SERVO_COUNT; i++) {
+            servo_positions[i] = msg->data.data[i];
+        }
+        set_servo_values(servo_positions);
+        apply_servo_positions(servo_positions);
+    } else {
+        ESP_LOGW(TAG, "Invalid servo command length: %d", (int)msg->data.size);
+    }
 }
 
 // micro-ROS main task
@@ -182,8 +109,10 @@ void micro_ros_task(void *arg) {
                                            &subscription_callback, ON_NEW_DATA));
 
     // Set default servo positions
-    for (int i = 0; i < SERVO_COUNT; i++) servo_values[i] = 90;
-    apply_servo_positions(servo_values);
+    int default_positions[SERVO_COUNT];
+    for (int i = 0; i < SERVO_COUNT; i++) default_positions[i] = 90;
+    set_servo_values(default_positions);
+    apply_servo_positions(default_positions);
 
     while (1) {
         rclc_executor_spin_some(&executor, RCL_MS_TO_NS(100));
