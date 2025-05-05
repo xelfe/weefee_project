@@ -3,7 +3,7 @@
 This repository contains two main parts:
 
 1. **espidf/** – Code for ESP32 using ESP-IDF + micro-ROS
-2. **ros2_ws/** – Standard ROS 2 workspace with a C++ node to control the robot
+2. **ros2_ws/** – Standard ROS 2 workspace with C++ nodes to control the robot
 
 ## 🤖 Features
 
@@ -14,6 +14,7 @@ The project now includes a complete quadruped robot control system with:
 - **Multiple Gait Patterns** - Stand, walk, trot, and pace movements
 - **Body Position & Orientation Control** - Adjust the robot's stance and orientation
 - **Servo Control System** - Direct control of all servomotors
+- **ROS2 Control Interface** - Advanced control nodes with visualization support
 
 ---
 
@@ -57,6 +58,7 @@ cd weefee_project
 2. Install additional required dependencies:
    ```bash
    sudo apt install ros-humble-osrf-testing-tools-cpp ros-humble-test-msgs
+   sudo apt install ros-humble-geometry-msgs ros-humble-visualization-msgs
    ```
 
 ---
@@ -93,6 +95,27 @@ cd weefee_project
    source install/local_setup.bash
    ```
 
+## 🖥️ Running the ROS2 Nodes
+
+The ROS 2 workspace includes multiple nodes for different purposes:
+
+1. **Basic controller**:
+   ```bash
+   ros2 run weefee_node servo_commander
+   ```
+   
+2. **Kinematics controller** (advanced gait planning):
+   ```bash
+   ros2 run weefee_node quadruped_kinematics_controller
+   ```
+   
+3. **Visualizer** (for use with RViz):
+   ```bash
+   ros2 run weefee_node quadruped_visualizer
+   ```
+
+To visualize the robot in RViz, add a MarkerArray display and subscribe to the "robot_visualization" topic.
+
 ---
 
 ## 📚 Documentation
@@ -103,9 +126,30 @@ cd weefee_project
 
 ## 📋 Code Structure
 
-### Quadruped Modules
+### ESP32 Modules
 - **quadruped_kinematics.h/c** - Mathematical functions for leg movement calculations
 - **quadruped_robot.h/c** - High-level robot control and gait implementation 
 - **servo_controller.h/c** - Low-level servo motor control interface
+- **main.c** - Main application with micro-ROS integration
+
+### ROS2 Modules
+- **servo_commander.cpp** - Basic quadruped controller with demo sequence
+- **quadruped_kinematics_controller.cpp** - Advanced controller with gait planning
+- **quadruped_inverse_kinematics.h** - Inverse and forward kinematics implementation
+- **quadruped_visualizer.cpp** - Robot visualization for RViz
+
+## 🤖 Control Commands
+
+The quadruped robot responds to the following commands:
+
+- **stand**: Put the robot in standing position
+- **sit**: Put the robot in sitting position
+- **walk [speed]**: Start walking gait (optional speed parameter)
+- **trot**: Start trotting gait
+- **stop**: Stop any current movement
+- **position x y z**: Set body position (in mm)
+- **orientation roll pitch yaw**: Set body orientation (in degrees)
+
+These commands can be sent via ROS2 topics or tested directly through the controller nodes.
 
 The quadruped control system uses inverse kinematics to calculate joint angles from desired foot positions, supporting various gaits and body movements.

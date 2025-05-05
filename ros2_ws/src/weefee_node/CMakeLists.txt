@@ -9,6 +9,8 @@ endif()
 find_package(ament_cmake REQUIRED)
 find_package(rclcpp REQUIRED)
 find_package(std_msgs REQUIRED)
+find_package(geometry_msgs REQUIRED)
+find_package(visualization_msgs REQUIRED)
 
 if(BUILD_TESTING)
   find_package(ament_lint_auto REQUIRED)
@@ -22,16 +24,42 @@ if(BUILD_TESTING)
   ament_lint_auto_find_test_dependencies()
 endif()
 
-# Ajouter l'exécutable
+# Add executables
 add_executable(servo_commander src/servo_commander.cpp)
+add_executable(quadruped_kinematics_controller src/quadruped_kinematics_controller.cpp)
+add_executable(quadruped_visualizer src/quadruped_visualizer.cpp)
 
-# Spécifier les dépendances de l'exécutable
-ament_target_dependencies(servo_commander rclcpp std_msgs)
+# Specify dependencies
+ament_target_dependencies(servo_commander 
+  rclcpp 
+  std_msgs
+)
 
-# Installer l'exécutable
+ament_target_dependencies(quadruped_kinematics_controller 
+  rclcpp 
+  std_msgs
+  geometry_msgs
+)
+
+ament_target_dependencies(quadruped_visualizer 
+  rclcpp 
+  std_msgs
+  geometry_msgs
+  visualization_msgs
+)
+
+# Install executables
 install(TARGETS
   servo_commander
+  quadruped_kinematics_controller
+  quadruped_visualizer
   DESTINATION lib/${PROJECT_NAME}
+)
+
+# Install header files
+install(
+  FILES src/quadruped_inverse_kinematics.h
+  DESTINATION include/${PROJECT_NAME}
 )
 
 ament_package()

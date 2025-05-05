@@ -48,6 +48,8 @@ static const char *TAG = "weefee_main";
 #define CMD_PREFIX_WALK "walk"
 #define CMD_PREFIX_STOP "stop"
 #define CMD_PREFIX_TROT "trot"
+#define CMD_PREFIX_POSITION "position"
+#define CMD_PREFIX_ORIENTATION "orientation"
 
 // micro-ROS entities
 typedef struct {
@@ -251,6 +253,73 @@ static void process_servo_command(const char* cmd) {
 }
 
 /**
+ * @brief Processes a position command
+ * Format: "position x y z"
+ * @param cmd The command string starting with "position"
+ */
+static void process_position_command(const char* cmd) {
+    float x, y, z;
+    int params_read = sscanf(cmd, "position %f %f %f", &x, &y, &z);
+    
+    if (params_read == 3) {
+        // Set the position
+        temp_position.x = x;
+        temp_position.y = y;
+        temp_position.z = z;
+        
+        // Apply to robot
+        robot_set_body_position(&temp_position);
+        
+        // Log and report
+        ESP_LOGI(TAG, "Setting body position to [%.2f, %.2f, %.2f]", x, y, z);
+        
+        char status_buf[STATUS_BUFFER_SIZE];
+        snprintf(status_buf, STATUS_BUFFER_SIZE, "Position set to [%.2f, %.2f, %.2f]", x, y, z);
+        publish_status(&g_microros_ctx, status_buf);
+    } else {
+        char status_buf[STATUS_BUFFER_SIZE];
+        snprintf(status_buf, STATUS_BUFFER_SIZE, 
+                 "Error: position command requires 3 values, got %d", params_read);
+        publish_status(&g_microros_ctx, status_buf);
+        ESP_LOGW(TAG, "%s", status_buf);
+    }
+}
+
+/**
+ * @brief Processes an orientation command
+ * Format: "orientation roll pitch yaw"
+ * @param cmd The command string starting with "orientation"
+ */
+static void process_orientation_command(const char* cmd) {
+    float roll, pitch, yaw;
+    int params_read = sscanf(cmd, "orientation %f %f %f", &roll, &pitch, &yaw);
+    
+    if (params_read == 3) {
+        // Set the orientation
+        temp_orientation.roll = roll;
+        temp_orientation.pitch = pitch;
+        temp_orientation.yaw = yaw;
+        
+        // Apply to robot
+        robot_set_body_orientation(&temp_orientation);
+        
+        // Log and report
+        ESP_LOGI(TAG, "Setting body orientation to [%.2f, %.2f, %.2f]", roll, pitch, yaw);
+        
+        char status_buf[STATUS_BUFFER_SIZE];
+        snprintf(status_buf, STATUS_BUFFER_SIZE, "Orientation set to [%.2f, %.2f, %.2f]", 
+                roll, pitch, yaw);
+        publish_status(&g_microros_ctx, status_buf);
+    } else {
+        char status_buf[STATUS_BUFFER_SIZE];
+        snprintf(status_buf, STATUS_BUFFER_SIZE, 
+                 "Error: orientation command requires 3 values, got %d", params_read);
+        publish_status(&g_microros_ctx, status_buf);
+        ESP_LOGW(TAG, "%s", status_buf);
+    }
+}
+
+/**
  * @brief Callback for pose messages
  * @param msgin Pointer to the received message
  */
@@ -325,6 +394,12 @@ static void command_callback(const void *msgin) {
     else if (strcmp(command, CMD_PREFIX_TROT) == 0) {
         robot_start_gait(GAIT_TROT, 1.0f);
         publish_status(&g_microros_ctx, "Trotting");
+    }
+    else if (strncmp(command, CMD_PREFIX_POSITION, strlen(CMD_PREFIX_POSITION)) == 0) {
+        process_position_command(command);
+    }
+    else if (strncmp(command, CMD_PREFIX_ORIENTATION, strlen(CMD_PREFIX_ORIENTATION)) == 0) {
+        process_orientation_command(command);
     }
     else {
         char status_buf[STATUS_BUFFER_SIZE];
