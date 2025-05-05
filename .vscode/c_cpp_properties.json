@@ -1,0 +1,55 @@
+{
+    "configurations": [
+        {
+            "name": "ESP-IDF",
+            "includePath": [
+                "${workspaceFolder}/**",
+                "${env:HOME}/esp/esp-idf/**",
+                "${env:HOME}/esp/esp-idf/components/**",
+                "${workspaceFolder}/espidf/weefee_esp32/components/**",
+                "${workspaceFolder}/espidf/weefee_esp32/main/**",
+                "${workspaceFolder}/espidf/weefee_esp32/build/config"
+            ],
+            "defines": [
+                "ESP_PLATFORM",
+                "CONFIG_IDF_TARGET_ESP32"
+            ],
+            "compileCommands": "${workspaceFolder}/espidf/weefee_esp32/build/compile_commands.json",
+            "compilerPath": "${env:HOME}/.espressif/tools/xtensa-esp32-elf/esp-14.2.0_20241119/xtensa-esp32-elf/bin/xtensa-esp32-elf-gcc",
+            "cStandard": "c11",
+            "cppStandard": "c++17",
+            "intelliSenseMode": "gcc-x64",
+            "browse": {
+                "path": [
+                    "${workspaceFolder}/espidf/weefee_esp32",
+                    "${env:HOME}/esp/esp-idf"
+                ],
+                "limitSymbolsToIncludedHeaders": false
+            },
+            "forcedInclude": [
+                "${workspaceFolder}/espidf/weefee_esp32/build/config/sdkconfig.h"
+            ]
+        },
+        {
+            "name": "ROS2",
+            "includePath": [
+                "${workspaceFolder}/**",
+                "/opt/ros/humble/include/**",
+                "${workspaceFolder}/ros2_ws/src/**"
+            ],
+            "defines": [],
+            "compilerPath": "/usr/bin/g++",
+            "cStandard": "c11",
+            "cppStandard": "c++17",
+            "intelliSenseMode": "gcc-x64",
+            "browse": {
+                "path": [
+                    "${workspaceFolder}/ros2_ws/src",
+                    "/opt/ros/humble/include"
+                ],
+                "limitSymbolsToIncludedHeaders": false
+            }
+        }
+    ],
+    "version": 4
+}
