@@ -42,6 +42,8 @@ cd weefee_project
    ```
 
 #### For micro-ROS
+The project uses micro-ROS to enable ROS2 communication with the ESP32 microcontroller.
+
 1. Install micro-ROS dependencies:
    ```bash
    sudo apt update
@@ -52,13 +54,36 @@ cd weefee_project
    ```bash
    git submodule update --init --recursive
    ```
+3. The micro-ROS client library is included as an ESP-IDF component in the `/espidf/weefee_esp32/components/` directory.
 
 #### For ROS 2
-1. Install ROS 2 (e.g., Humble) by following the official instructions: [ROS 2 Installation Guide](https://docs.ros.org/en/humble/Installation.html).
-2. Install additional required dependencies:
+The project supports both ROS2 Humble (Ubuntu 22.04) and ROS2 Jazzy Jalisco (Ubuntu 24.04):
+
+##### ROS2 Humble (Ubuntu 22.04)
+1. Install ROS 2 Humble:
    ```bash
+   sudo apt install ros-humble-desktop
    sudo apt install ros-humble-osrf-testing-tools-cpp ros-humble-test-msgs
    sudo apt install ros-humble-geometry-msgs ros-humble-visualization-msgs
+   ```
+
+##### ROS2 Jazzy Jalisco (Ubuntu 24.04)
+1. Install ROS 2 Jazzy:
+   ```bash
+   sudo apt install ros-jazzy-desktop
+   sudo apt install ros-jazzy-osrf-testing-tools-cpp ros-jazzy-test-msgs
+   sudo apt install ros-jazzy-geometry-msgs ros-jazzy-visualization-msgs
+   ```
+
+2. Set up ROS2 environment (for either version):
+   ```bash
+   # For Humble (Ubuntu 22.04)
+   echo "source /opt/ros/humble/setup.bash" >> ~/.bashrc
+   
+   # For Jazzy (Ubuntu 24.04)
+   echo "source /opt/ros/jazzy/setup.bash" >> ~/.bashrc
+   
+   source ~/.bashrc
    ```
 
 ---
@@ -78,7 +103,7 @@ cd weefee_project
 3. Build and flash the firmware:
    ```bash
    idf.py build
-   idf.py flash
+   idf.py -p /dev/ttyUSB0 flash
    ```
 
 ### Build for ROS 2
@@ -92,11 +117,23 @@ cd weefee_project
    ```
 3. Source the environment:
    ```bash
-   source install/local_setup.bash
+   source install/setup.bash
    ```
 
 ## 🖥️ Running the ROS2 Nodes
 
+### 1. Start the micro-ROS Agent
+First, start the micro-ROS agent to bridge between ROS2 and the ESP32:
+
+```bash
+# Install if you don't have it yet
+sudo apt install ros-$ROS_DISTRO-micro-ros-agent
+
+# Run the agent
+ros2 run micro_ros_agent micro_ros_agent udp4 --port 8888
+```
+
+### 2. Run a Control Node
 The ROS 2 workspace includes multiple nodes for different purposes:
 
 1. **Basic controller**:
@@ -120,9 +157,11 @@ To visualize the robot in RViz, add a MarkerArray display and subscribe to the "
 
 ## 📚 Documentation
 
+- [Project Wiki](https://github.com/yourusername/weefee_project/wiki) - Full project documentation
 - [ESP-IDF Documentation](https://docs.espressif.com/projects/esp-idf/en/latest/esp32/index.html)
 - [micro-ROS Documentation](https://micro.ros.org/)
-- [ROS 2 Documentation](https://docs.ros.org/en/humble/index.html)
+- [ROS 2 Humble Documentation](https://docs.ros.org/en/humble/index.html)
+- [ROS 2 Jazzy Documentation](https://docs.ros.org/en/jazzy/index.html)
 
 ## 📋 Code Structure
 
