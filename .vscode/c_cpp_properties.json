@@ -34,10 +34,20 @@
             "name": "ROS2",
             "includePath": [
                 "${workspaceFolder}/**",
-                "/opt/ros/humble/include/**",
-                "${workspaceFolder}/ros2_ws/src/**"
+                "/opt/ros/${env:ROS_DISTRO}/include/**",
+                "${workspaceFolder}/ros2_ws/src/**",
+                "/usr/include/c++/11",
+                "/usr/include/x86_64-linux-gnu/c++/11",
+                "/usr/include/c++/11/backward",
+                "/usr/lib/gcc/x86_64-linux-gnu/11/include",
+                "/usr/local/include",
+                "/usr/include/x86_64-linux-gnu",
+                "/usr/include"
             ],
-            "defines": [],
+            "defines": [
+                "RCLCPP_VERSION_MAJOR=16",
+                "RCLCPP_VERSION_MINOR=0"
+            ],
             "compilerPath": "/usr/bin/g++",
             "cStandard": "c11",
             "cppStandard": "c++17",
@@ -45,10 +55,13 @@
             "browse": {
                 "path": [
                     "${workspaceFolder}/ros2_ws/src",
-                    "/opt/ros/humble/include"
+                    "/opt/ros/${env:ROS_DISTRO}/include",
+                    "/usr/include",
+                    "/usr/local/include"
                 ],
                 "limitSymbolsToIncludedHeaders": false
-            }
+            },
+            "compileCommands": "${workspaceFolder}/ros2_ws/build/compile_commands.json"
         }
     ],
     "version": 4

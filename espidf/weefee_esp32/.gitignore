@@ -2,6 +2,7 @@
 /install
 /log
 .vscode
+!.vscode/c_cpp_properties.json
 *.pyc
 *.o
 *.elf
