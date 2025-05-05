@@ -7,6 +7,7 @@
 #include "quadruped_robot.h"
 #include "quadruped_kinematics.h"
 #include "servo_controller.h"
+#include "sdkconfig.h"
 
 static const char *TAG = "robot";
 
@@ -31,18 +32,18 @@ void robot_init(void) {
     // Initialize kinematics
     init_kinematics();
     
-    // Robot dimensions (in millimeters)
-    float body_length = 120.0f;
-    float body_width = 90.0f;
-    float coxa_length = 30.0f;
-    float femur_length = 70.0f;
-    float tibia_length = 90.0f;
+    // Robot dimensions are now configured through menuconfig (as integers in millimeters)
+    int body_length = CONFIG_ROBOT_BODY_LENGTH;
+    int body_width = CONFIG_ROBOT_BODY_WIDTH;
+    int coxa_length = CONFIG_DEFAULT_COXA_LENGTH;
+    int femur_length = CONFIG_DEFAULT_FEMUR_LENGTH;
+    int tibia_length = CONFIG_DEFAULT_TIBIA_LENGTH;
     
-    // Configure kinematics dimensions
+    // Configure kinematics dimensions (keeping values in millimeters)
     set_robot_dimensions(body_length, body_width, coxa_length, femur_length, tibia_length);
     
     // Initialize legs
-    // Leg mounting positions relative to body center
+    // Leg mounting positions relative to body center (in millimeters)
     vec3_t mounting_positions[LEG_COUNT] = {
         {body_length/2,  body_width/2,  0},  // Front right
         {body_length/2, -body_width/2,  0},  // Front left

@@ -6,12 +6,13 @@
 #include <stdbool.h>
 #include "driver/ledc.h"
 #include "esp_err.h"
+#include "sdkconfig.h"
 
 // Constants for servo control
 #define SERVO_COUNT 12
-#define SERVO_MIN_PULSEWIDTH 500
-#define SERVO_MAX_PULSEWIDTH 2500
-#define SERVO_FREQ 50
+#define SERVO_MIN_PULSEWIDTH CONFIG_SERVO_MIN_PULSEWIDTH
+#define SERVO_MAX_PULSEWIDTH CONFIG_SERVO_MAX_PULSEWIDTH
+#define SERVO_FREQ CONFIG_SERVO_FREQ
 
 #define LEDC_TIMER_BIT LEDC_TIMER_13_BIT
 #define LEDC_TIMER_HIGH LEDC_TIMER_0

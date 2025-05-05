@@ -7,13 +7,16 @@
 #include "esp_system.h"
 #include "driver/ledc.h"
 #include "servo_controller.h"
+#include "sdkconfig.h"
 
 static const char *TAG = "servo_controller";
 
-// GPIOs used for servo control
+// GPIOs used for servo control - values loaded from menuconfig
 static const int servo_pins[SERVO_COUNT] = {
-    2, 4, 5, 12, 13, 14,
-    15, 16, 17, 18, 19, 21
+    CONFIG_SERVO_PIN_0, CONFIG_SERVO_PIN_1, CONFIG_SERVO_PIN_2, 
+    CONFIG_SERVO_PIN_3, CONFIG_SERVO_PIN_4, CONFIG_SERVO_PIN_5,
+    CONFIG_SERVO_PIN_6, CONFIG_SERVO_PIN_7, CONFIG_SERVO_PIN_8, 
+    CONFIG_SERVO_PIN_9, CONFIG_SERVO_PIN_10, CONFIG_SERVO_PIN_11
 };
 
 // Servo values storage
@@ -21,6 +24,14 @@ static int servo_values[SERVO_COUNT] = {0};
 
 // Initialize the LEDC timers and channels for PWM control
 void setup_servos() {
+    ESP_LOGI(TAG, "Initializing servos with pins: %d, %d, %d, %d, %d, %d, %d, %d, %d, %d, %d, %d",
+             servo_pins[0], servo_pins[1], servo_pins[2], servo_pins[3], 
+             servo_pins[4], servo_pins[5], servo_pins[6], servo_pins[7], 
+             servo_pins[8], servo_pins[9], servo_pins[10], servo_pins[11]);
+    
+    ESP_LOGI(TAG, "Servo parameters: Freq=%dHz, Min pulse=%dus, Max pulse=%dus",
+             SERVO_FREQ, SERVO_MIN_PULSEWIDTH, SERVO_MAX_PULSEWIDTH);
+    
     // High-speed timer for first 8 servos
     ledc_timer_config_t timer_high = {
         .speed_mode = LEDC_HIGH_SPEED_MODE,

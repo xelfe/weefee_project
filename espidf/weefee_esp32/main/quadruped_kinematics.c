@@ -3,18 +3,21 @@
 #include <math.h>
 #include "esp_log.h"
 #include "quadruped_kinematics.h"
+#include "sdkconfig.h"
 
 static const char *TAG = "kinematics";
 
-// Robot dimensions
-static float robot_body_length = 0.0f;
-static float robot_body_width = 0.0f;
-static float default_coxa_length = 0.0f;
-static float default_femur_length = 0.0f;
-static float default_tibia_length = 0.0f;
+// Robot dimensions (initialized from menuconfig, keeping values in millimeters)
+static float robot_body_length = CONFIG_ROBOT_BODY_LENGTH;  // millimeters
+static float robot_body_width = CONFIG_ROBOT_BODY_WIDTH;    // millimeters
+static float default_coxa_length = CONFIG_DEFAULT_COXA_LENGTH;    // millimeters
+static float default_femur_length = CONFIG_DEFAULT_FEMUR_LENGTH;  // millimeters
+static float default_tibia_length = CONFIG_DEFAULT_TIBIA_LENGTH;  // millimeters
 
 void init_kinematics(void) {
     ESP_LOGI(TAG, "Initializing quadruped kinematics");
+    ESP_LOGI(TAG, "Robot dimensions (from menuconfig) - Body: %.2f x %.2f, Leg segments: %.2f, %.2f, %.2f",
+             robot_body_length, robot_body_width, default_coxa_length, default_femur_length, default_tibia_length);
 }
 
 void set_robot_dimensions(float body_length, float body_width, float coxa_length, float femur_length, float tibia_length) {
