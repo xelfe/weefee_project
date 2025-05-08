@@ -42,8 +42,8 @@ static quadruped_t robot;
 static const int servo_mapping[LEG_COUNT][JOINT_COUNT] = {
     {0, 1, 2},     // Front right leg - coxa, femur, tibia
     {3, 4, 5},     // Front left leg
-    {6, 7, 8},     // Rear right leg - rétabli au mappage d'origine
-    {9, 10, 11}    // Rear left leg - rétabli au mappage d'origine
+    {6, 7, 8},     // Rear right leg - restored to original mapping
+    {9, 10, 11}    // Rear left leg - restored to original mapping
 };
 
 // Robot initialization
@@ -127,7 +127,13 @@ void robot_init(void) {
     }
     
     set_servo_values(servo_positions);
-    apply_servo_positions(servo_positions);
+    
+    // Force synchronized application of positions to all servos
+    ESP_LOGI(TAG, "Applying initial servo positions simultaneously to all legs...");
+    for (int retry = 0; retry < 3; retry++) {
+        apply_servo_positions(servo_positions);
+        vTaskDelay(pdMS_TO_TICKS(50)); // Short delay between attempts
+    }
     
     ESP_LOGI(TAG, "Robot initialization complete with servos at configured angles (COXA:90°, FEMUR:45°, TIBIA:90°)");
 }
@@ -258,9 +264,24 @@ esp_err_t robot_sit(void) {
         // Front legs stay extended, rear legs fold
         if (i == LEG_FRONT_RIGHT || i == LEG_FRONT_LEFT) {
             foot_pos.z = -80.0f;
-        } else {
+            
+            // Adjust front legs to point symmetrically outward
+            if (i == LEG_FRONT_RIGHT) {
+                foot_pos.y += 20.0f; // Right leg moves right (outward)
+            } else { // LEG_FRONT_LEFT
+                foot_pos.y -= 20.0f; // Left leg moves left (outward)
+            }
+        } else { // Rear legs (LEG_REAR_RIGHT or LEG_REAR_LEFT)
             foot_pos.z = -50.0f;
-            foot_pos.x -= 30.0f; // Fold rear legs
+            
+            // Fold rear legs symmetrically inward
+            if (i == LEG_REAR_RIGHT) {
+                foot_pos.x -= 30.0f; // Move backward
+                foot_pos.y -= 20.0f; // Right leg moves left (inward)
+            } else { // LEG_REAR_LEFT
+                foot_pos.x -= 30.0f; // Move backward
+                foot_pos.y += 20.0f; // Left leg moves right (inward)
+            }
         }
         
         robot_set_leg_position(i, &foot_pos);

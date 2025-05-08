@@ -32,6 +32,7 @@
 #include "driver/ledc.h"
 #include "servo_controller.h"
 #include "sdkconfig.h"
+#include "rom/ets_sys.h"  // For ets_delay_us
 
 static const char *TAG = "servo_controller";
 
@@ -88,6 +89,8 @@ void setup_servos() {
         };
         ledc_channel_config(&channel);
     }
+    
+    ESP_LOGI(TAG, "Servo initialization complete");
 }
 
 // Converts angle (0-180°) to PWM duty cycle
@@ -101,19 +104,32 @@ uint32_t angle_to_duty(int angle) {
 
 // Applies servo angles with synchronized update
 void apply_servo_positions(const int positions[SERVO_COUNT]) {
-    // First, set all duties for all channels
+    // Detailed log to help with debugging
+    ESP_LOGI(TAG, "Applying servo positions: front legs (0-5), rear legs (6-11)");
+    
+    // Preprocessing: calculate duty cycles for all servos
+    uint32_t duties[SERVO_COUNT];
     for (int i = 0; i < SERVO_COUNT; i++) {
-        uint32_t duty = angle_to_duty(positions[i]);
-        ledc_set_duty(i < 8 ? LEDC_HIGH_SPEED_MODE : LEDC_LOW_SPEED_MODE,
-                     i < 8 ? i : (i - 8), duty);
-        ESP_LOGI(TAG, "Servo %d set to %d° (duty=%lu)", i, positions[i], duty);
+        duties[i] = angle_to_duty(positions[i]);
+        ESP_LOGD(TAG, "Servo %d set to %d° (duty=%lu)", i, positions[i], duties[i]);
     }
     
-    // Then update all channels in sequence to minimize timing differences
+    // Apply duty values to all channels without updating them immediately
+    for (int i = 0; i < SERVO_COUNT; i++) {
+        ledc_set_duty(i < 8 ? LEDC_HIGH_SPEED_MODE : LEDC_LOW_SPEED_MODE,
+                     i < 8 ? i : (i - 8), duties[i]);
+    }
+    
+    // Update all channels of all legs simultaneously
+    // Temporarily disable interrupts to ensure synchronization
+    portDISABLE_INTERRUPTS();
     for (int i = 0; i < SERVO_COUNT; i++) {
         ledc_update_duty(i < 8 ? LEDC_HIGH_SPEED_MODE : LEDC_LOW_SPEED_MODE,
                         i < 8 ? i : (i - 8));
     }
+    portENABLE_INTERRUPTS();
+    
+    ESP_LOGI(TAG, "All servo positions updated simultaneously");
 }
 
 // Updates the servo values array
