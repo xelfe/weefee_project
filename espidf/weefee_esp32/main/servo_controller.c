@@ -99,15 +99,20 @@ uint32_t angle_to_duty(int angle) {
     return duty;
 }
 
-// Applies servo angles
+// Applies servo angles with synchronized update
 void apply_servo_positions(const int positions[SERVO_COUNT]) {
+    // First, set all duties for all channels
     for (int i = 0; i < SERVO_COUNT; i++) {
         uint32_t duty = angle_to_duty(positions[i]);
         ledc_set_duty(i < 8 ? LEDC_HIGH_SPEED_MODE : LEDC_LOW_SPEED_MODE,
-                      i < 8 ? i : (i - 8), duty);
-        ledc_update_duty(i < 8 ? LEDC_HIGH_SPEED_MODE : LEDC_LOW_SPEED_MODE,
-                         i < 8 ? i : (i - 8));
+                     i < 8 ? i : (i - 8), duty);
         ESP_LOGI(TAG, "Servo %d set to %d° (duty=%lu)", i, positions[i], duty);
+    }
+    
+    // Then update all channels in sequence to minimize timing differences
+    for (int i = 0; i < SERVO_COUNT; i++) {
+        ledc_update_duty(i < 8 ? LEDC_HIGH_SPEED_MODE : LEDC_LOW_SPEED_MODE,
+                        i < 8 ? i : (i - 8));
     }
 }
 

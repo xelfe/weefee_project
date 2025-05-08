@@ -8,11 +8,14 @@
                 "${env:HOME}/esp/esp-idf/components/**",
                 "${workspaceFolder}/components/**",
                 "${workspaceFolder}/main/**",
-                "${workspaceFolder}/build/config"
+                "${workspaceFolder}/build/config",
+                "${env:HOME}/esp/esp-idf/components/log/include"
             ],
             "defines": [
                 "ESP_PLATFORM",
-                "CONFIG_IDF_TARGET_ESP32"
+                "CONFIG_IDF_TARGET_ESP32",
+                "ESP_LOG_LEVEL_DEBUG",
+                "ESP_LOG_LEVEL_VERBOSE"
             ],
             "compileCommands": "${workspaceFolder}/build/compile_commands.json",
             "compilerPath": "${env:HOME}/.espressif/tools/xtensa-esp32-elf/esp-14.2.0_20241119/xtensa-esp32-elf/bin/xtensa-esp32-elf-gcc",

@@ -42,8 +42,8 @@ static quadruped_t robot;
 static const int servo_mapping[LEG_COUNT][JOINT_COUNT] = {
     {0, 1, 2},     // Front right leg - coxa, femur, tibia
     {3, 4, 5},     // Front left leg
-    {6, 7, 8},     // Rear right leg
-    {9, 10, 11}    // Rear left leg
+    {6, 7, 8},     // Rear right leg - rétabli au mappage d'origine
+    {9, 10, 11}    // Rear left leg - rétabli au mappage d'origine
 };
 
 // Robot initialization
@@ -90,9 +90,9 @@ void robot_init(void) {
         robot.legs[i].foot_position = mounting_positions[i];
         robot.legs[i].foot_position.z = -110.0f;  // Ground position
         
-        // Initial joint angles - all set to 90 degrees to match physical assembly
+        // Initial joint angles - modified to match correct physical assembly position
         robot.legs[i].angles[JOINT_COXA] = 90.0f;
-        robot.legs[i].angles[JOINT_FEMUR] = 90.0f;
+        robot.legs[i].angles[JOINT_FEMUR] = 45.0f;  // Changed from 90 to 45 degrees
         robot.legs[i].angles[JOINT_TIBIA] = 90.0f;
     }
     
@@ -115,15 +115,21 @@ void robot_init(void) {
     robot.is_walking = false;
     robot.walk_cycle_progress = 0.0f;
     
-    // Set and apply default 90-degree positions to all servos
-    int default_positions[SERVO_COUNT];
-    for (int i = 0; i < SERVO_COUNT; i++) {
-        default_positions[i] = 90;
-    }
-    set_servo_values(default_positions);
-    apply_servo_positions(default_positions);
+    // Set and apply positions based on the configured joint angles
+    int servo_positions[SERVO_COUNT];
     
-    ESP_LOGI(TAG, "Robot initialization complete with all servos at 90-degree neutral position");
+    // Apply initial joint angles to physical servos
+    for (int i = 0; i < LEG_COUNT; i++) {
+        for (int j = 0; j < JOINT_COUNT; j++) {
+            // Store angle in servo array based on the mapping
+            servo_positions[robot.legs[i].servo_ids[j]] = (int)robot.legs[i].angles[j];
+        }
+    }
+    
+    set_servo_values(servo_positions);
+    apply_servo_positions(servo_positions);
+    
+    ESP_LOGI(TAG, "Robot initialization complete with servos at configured angles (COXA:90°, FEMUR:45°, TIBIA:90°)");
 }
 
 // Update servo angles from calculated angles
