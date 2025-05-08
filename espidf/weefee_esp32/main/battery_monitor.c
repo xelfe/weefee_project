@@ -44,6 +44,7 @@ static const char *TAG = "battery_monitor";
 // Default calibration value for INA219
 #define DEFAULT_CALIB_VALUE 4096
 
+#ifdef CONFIG_BAT_MONITOR_ENABLED
 // Battery cell configuration from menuconfig
 #define CELL_COUNT          CONFIG_BAT_MONITOR_CELL_COUNT
 #define CELL_LOW_PCT        CONFIG_BAT_MONITOR_CELL_LOW_PCT
@@ -59,6 +60,13 @@ static const char *TAG = "battery_monitor";
 #define DEFAULT_VOLTAGE_RANGE     (DEFAULT_FULL_BATTERY - DEFAULT_EMPTY_BATTERY)
 #define DEFAULT_LOW_THRESHOLD     (DEFAULT_EMPTY_BATTERY + (DEFAULT_VOLTAGE_RANGE * CELL_LOW_PCT / 100.0f))
 #define DEFAULT_CRITICAL_THRESHOLD (DEFAULT_EMPTY_BATTERY + (DEFAULT_VOLTAGE_RANGE * CELL_CRITICAL_PCT / 100.0f))
+#else
+// Default values when battery monitoring is disabled
+#define DEFAULT_FULL_BATTERY      8.4f   // Default for 2S LiPo
+#define DEFAULT_EMPTY_BATTERY     6.0f   // Default for 2S LiPo
+#define DEFAULT_LOW_THRESHOLD     7.0f   // Default low threshold
+#define DEFAULT_CRITICAL_THRESHOLD 6.5f  // Default critical threshold
+#endif
 
 // Battery monitoring state
 static struct {
@@ -91,6 +99,10 @@ static void battery_monitor_task(void *pvParameters);
  * @brief Initialize the battery monitor with INA219 sensor
  */
 esp_err_t battery_monitor_init(int sda_pin, int scl_pin, uint32_t i2c_freq_hz) {
+#ifndef CONFIG_BAT_MONITOR_ENABLED
+    ESP_LOGW(TAG, "Battery monitoring is disabled in configuration");
+    return ESP_ERR_NOT_SUPPORTED;
+#else
     if (battery_state.initialized) {
         ESP_LOGW(TAG, "Battery monitor already initialized");
         return ESP_OK;
@@ -146,12 +158,17 @@ esp_err_t battery_monitor_init(int sda_pin, int scl_pin, uint32_t i2c_freq_hz) {
 
     ESP_LOGI(TAG, "Battery monitor initialized successfully");
     return ESP_OK;
+#endif
 }
 
 /**
  * @brief Configure the INA219 sensor
  */
 esp_err_t battery_monitor_configure(uint16_t calibration_value) {
+#ifndef CONFIG_BAT_MONITOR_ENABLED
+    ESP_LOGW(TAG, "Battery monitoring is disabled in configuration");
+    return ESP_ERR_NOT_SUPPORTED;
+#else
     esp_err_t ret;
 
     // Reset the device first
@@ -183,12 +200,30 @@ esp_err_t battery_monitor_configure(uint16_t calibration_value) {
 
     ESP_LOGI(TAG, "INA219 configured with calibration value: %u", calibration_value);
     return ESP_OK;
+#endif
 }
 
 /**
  * @brief Read the current battery information
  */
 esp_err_t battery_monitor_read(battery_info_t *info) {
+#ifndef CONFIG_BAT_MONITOR_ENABLED
+    ESP_LOGW(TAG, "Battery monitoring is disabled in configuration");
+    
+    // Fill with default values when monitoring is disabled
+    if (info != NULL) {
+        info->voltage = DEFAULT_FULL_BATTERY;
+        info->current = 0.0f;
+        info->power = 0.0f;
+        info->remaining_pct = 100.0f;
+        info->status = BATTERY_OK;
+        
+        // Store in battery state
+        memcpy(&battery_state.info[0], info, sizeof(battery_info_t));
+    }
+    
+    return ESP_ERR_NOT_SUPPORTED;
+#else
     if (!battery_state.initialized) {
         ESP_LOGE(TAG, "Battery monitor not initialized");
         return ESP_ERR_INVALID_STATE;
@@ -265,22 +300,31 @@ esp_err_t battery_monitor_read(battery_info_t *info) {
              info->voltage, info->current, info->power, info->remaining_pct, info->status);
 
     return ESP_OK;
+#endif
 }
 
 /**
  * @brief Get the current battery status
  */
 battery_status_t battery_monitor_get_status(void) {
+#ifndef CONFIG_BAT_MONITOR_ENABLED
+    return BATTERY_OK;  // Toujours retourner OK quand le monitoring est désactivé
+#else
     if (!battery_state.initialized) {
         return BATTERY_UNKNOWN;
     }
     return battery_state.info[0].status;
+#endif
 }
 
 /**
  * @brief Start a background task to monitor battery status
  */
 esp_err_t battery_monitor_start_task(uint32_t update_interval_ms) {
+#ifndef CONFIG_BAT_MONITOR_ENABLED
+    ESP_LOGW(TAG, "Battery monitoring is disabled in configuration");
+    return ESP_ERR_NOT_SUPPORTED;
+#else
     if (!battery_state.initialized) {
         ESP_LOGE(TAG, "Battery monitor not initialized");
         return ESP_ERR_INVALID_STATE;
@@ -320,12 +364,17 @@ esp_err_t battery_monitor_start_task(uint32_t update_interval_ms) {
     battery_state.monitoring_active = true;
     ESP_LOGI(TAG, "Battery monitoring task started");
     return ESP_OK;
+#endif
 }
 
 /**
  * @brief Stop the battery monitoring task
  */
 esp_err_t battery_monitor_stop_task(void) {
+#ifndef CONFIG_BAT_MONITOR_ENABLED
+    ESP_LOGW(TAG, "Battery monitoring is disabled in configuration");
+    return ESP_ERR_NOT_SUPPORTED;
+#else
     if (!battery_state.monitoring_active || battery_state.task_handle == NULL) {
         ESP_LOGW(TAG, "Battery monitoring task not running");
         return ESP_OK;
@@ -340,12 +389,17 @@ esp_err_t battery_monitor_stop_task(void) {
     
     ESP_LOGI(TAG, "Battery monitoring task stopped");
     return ESP_OK;
+#endif
 }
 
 /**
  * @brief Set the battery thresholds for status levels
  */
 esp_err_t battery_monitor_set_thresholds(float low_threshold, float critical_threshold) {
+#ifndef CONFIG_BAT_MONITOR_ENABLED
+    ESP_LOGW(TAG, "Battery monitoring is disabled in configuration");
+    return ESP_ERR_NOT_SUPPORTED;
+#else
     if (low_threshold <= critical_threshold) {
         ESP_LOGE(TAG, "Invalid thresholds: low must be higher than critical");
         return ESP_ERR_INVALID_ARG;
@@ -357,6 +411,7 @@ esp_err_t battery_monitor_set_thresholds(float low_threshold, float critical_thr
     ESP_LOGI(TAG, "Battery thresholds set: low=%.2fV, critical=%.2fV", 
              low_threshold, critical_threshold);
     return ESP_OK;
+#endif
 }
 
 /**
