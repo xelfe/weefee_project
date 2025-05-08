@@ -36,6 +36,7 @@
 #include "servo_controller.h"
 #include "quadruped_kinematics.h"
 #include "quadruped_robot.h"
+#include "battery_monitor.h"
 
 // micro-ROS includes
 #include <uros_network_interfaces.h>
@@ -98,6 +99,69 @@ static microros_context_t g_microros_ctx;
 // Temporary position to store received coordinates
 static vec3_t temp_position = {0};
 static orientation_t temp_orientation = {0};
+
+// Forward declarations
+static void publish_status(microros_context_t *ctx, const char *status);
+
+/**
+ * @brief Process battery status and include in status messages
+ * @param battery_info Pointer to battery information structure
+ * @return Status message related to battery (or NULL if no significant status)
+ */
+static const char* process_battery_status(const battery_info_t *battery_info) {
+    static char battery_status_msg[STATUS_BUFFER_SIZE];
+    static battery_status_t last_reported_status = BATTERY_UNKNOWN;
+    static uint32_t last_report_time = 0;
+    uint32_t now = xTaskGetTickCount() * portTICK_PERIOD_MS;
+    
+    // Report when status changes, when critical, or every 30 seconds
+    if (battery_info->status != last_reported_status || 
+        battery_info->status == BATTERY_CRITICAL ||
+        (now - last_report_time) > 30000) {
+        
+        last_reported_status = battery_info->status;
+        last_report_time = now;
+        
+        // Always generate a status message with current battery info
+        snprintf(battery_status_msg, STATUS_BUFFER_SIZE, 
+                 "Battery status: %.2fV (%.1f%%) - %s", 
+                 battery_info->voltage, battery_info->remaining_pct,
+                 battery_info->status == BATTERY_OK ? "OK" :
+                 battery_info->status == BATTERY_LOW ? "LOW" :
+                 battery_info->status == BATTERY_CRITICAL ? "CRITICAL" : "UNKNOWN");
+        
+        return battery_status_msg;
+    }
+    
+    return NULL;
+}
+
+/**
+ * @brief Battery status monitoring callback
+ * This is called by the battery monitoring task when status changes
+ */
+static void battery_status_callback(void) {
+    // Get current battery info
+    battery_info_t battery_info;
+    if (battery_monitor_read(&battery_info) == ESP_OK) {
+        // Process battery status and publish if needed
+        const char *status_msg = process_battery_status(&battery_info);
+        if (status_msg != NULL) {
+            publish_status(&g_microros_ctx, status_msg);
+        }
+        
+        // React to critical battery status
+        if (battery_info.status == BATTERY_CRITICAL) {
+            // If the robot is walking, make it stop and sit to prevent damage from falling
+            robot_stop_gait();
+            vTaskDelay(pdMS_TO_TICKS(500));
+            robot_sit();
+            
+            // Log the critical status
+            ESP_LOGW(TAG, "CRITICAL BATTERY! Robot motion stopped for safety.");
+        }
+    }
+}
 
 /**
  * @brief Initializes the message buffers for ROS communication
@@ -218,9 +282,21 @@ static bool init_publisher(rcl_publisher_t *pub,
  * @param status The status message to publish
  */
 static void publish_status(microros_context_t *ctx, const char *status) {
+    // Check if ROS is initialized
+    if (ctx->status_pub.impl == NULL) {
+        ESP_LOGW(TAG, "Cannot publish status '%s': ROS publisher not initialized", status);
+        return;
+    }
+    
+    // Log that we're publishing a message
+    ESP_LOGI(TAG, "Publishing status to robot_status: %s", status);
+    
     snprintf(ctx->status_msg.data.data, ctx->status_msg.data.capacity, "%s", status);
     ctx->status_msg.data.size = strlen(ctx->status_msg.data.data) + 1;
-    RCSOFTCHECK(rcl_publish(&ctx->status_pub, &ctx->status_msg, NULL));
+    rcl_ret_t rc = rcl_publish(&ctx->status_pub, &ctx->status_msg, NULL);
+    if (rc != RCL_RET_OK) {
+        ESP_LOGW(TAG, "Failed to publish status: %ld", (long)rc);
+    }
 }
 
 /**
@@ -554,12 +630,35 @@ static void micro_ros_task(void *arg) {
         return;
     }
 
+    // Publish an initial battery status message to test ROS connectivity
+    ESP_LOGI(TAG, "Publishing initial battery status message to test ROS connectivity");
+    
+    // Allow some time for the publisher to fully initialize
+    vTaskDelay(pdMS_TO_TICKS(1000));
+    
+    // Get current battery info for the initial message
+    battery_info_t battery_info;
+    if (battery_monitor_read(&battery_info) == ESP_OK) {
+        char status_buf[STATUS_BUFFER_SIZE];
+        snprintf(status_buf, STATUS_BUFFER_SIZE, 
+                "Initial battery status: %.2fV (%.1f%%)", 
+                battery_info.voltage, battery_info.remaining_pct);
+        publish_status(&g_microros_ctx, status_buf);
+        ESP_LOGI(TAG, "Initial battery status message sent: %s", status_buf);
+    } else {
+        publish_status(&g_microros_ctx, "ROS connectivity test: battery monitor initialized");
+        ESP_LOGI(TAG, "Sent test message to robot_status topic");
+    }
+
     // Main loop
     while (1) {
         rclc_executor_spin_some(&g_microros_ctx.executor, RCL_MS_TO_NS(100));
         
         // Periodic robot update (for gaits)
         robot_update();
+        
+        // Check battery status periodically
+        battery_status_callback();
         
         usleep(10000);  // Short delay to reduce CPU usage
     }
@@ -576,14 +675,41 @@ void app_main(void) {
     // Initialize robot hardware
     robot_init();
     
+    // Initialize battery monitor if enabled
+#ifdef CONFIG_BAT_MONITOR_ENABLED
+    ESP_LOGI(TAG, "Initializing battery monitor...");
+    // Use the pins defined in configuration
+    esp_err_t ret = battery_monitor_init(
+        CONFIG_BAT_MONITOR_SDA_PIN,
+        CONFIG_BAT_MONITOR_SCL_PIN,
+        CONFIG_BAT_MONITOR_I2C_FREQ
+    );
+    
+    if (ret == ESP_OK) {
+        // The battery thresholds are now calculated automatically based on cell configuration
+        // No need to manually set them unless you want to override the default values
+        ESP_LOGI(TAG, "Battery monitoring started with %d LiPo cells", CONFIG_BAT_MONITOR_CELL_COUNT);
+        ESP_LOGI(TAG, "Full voltage: %.2fV, Empty voltage: %.2fV", 
+                (float)(4200 * CONFIG_BAT_MONITOR_CELL_COUNT) / 1000.0f, 
+                (float)(3000 * CONFIG_BAT_MONITOR_CELL_COUNT) / 1000.0f);
+        
+        battery_monitor_start_task(CONFIG_BAT_MONITOR_UPDATE_INTERVAL);
+        
+        // DO NOT try to publish status messages here - ROS isn't initialized yet
+        // This will be done in the micro_ros_task after initialization
+    } else {
+        ESP_LOGW(TAG, "Failed to initialize battery monitor: %s", esp_err_to_name(ret));
+    }
+#endif
+    
     // Initialize network
 #if defined(CONFIG_MICRO_ROS_ESP_NETIF_WLAN) || defined(CONFIG_MICRO_ROS_ESP_NETIF_ENET)
-    esp_err_t ret = uros_network_interface_initialize();
-    if (ret != ESP_OK) {
-        ESP_LOGE(TAG, "Network init failed: %ld", (long)ret);
+    esp_err_t net_ret = uros_network_interface_initialize();
+    if (net_ret != ESP_OK) {
+        ESP_LOGE(TAG, "Network init failed: %ld", (long)net_ret);
         vTaskDelay(pdMS_TO_TICKS(2000));
-        ret = uros_network_interface_initialize();
-        if (ret != ESP_OK) {
+        net_ret = uros_network_interface_initialize();
+        if (net_ret != ESP_OK) {
             ESP_LOGE(TAG, "Network retry failed");
             return;
         }

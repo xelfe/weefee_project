@@ -165,4 +165,85 @@ menu "Weefee Configuration"
         endmenu
     endmenu
 
+    menu "Battery Monitor Configuration"
+        config BAT_MONITOR_ENABLED
+            bool "Enable Battery Monitoring"
+            default y
+            help
+                Enable or disable battery monitoring using INA219 sensor.
+
+        config BAT_MONITOR_SDA_PIN
+            int "I2C SDA Pin for INA219"
+            default 21
+            range 0 33
+            depends on BAT_MONITOR_ENABLED
+            help
+                GPIO pin number for I2C SDA line connected to INA219.
+
+        config BAT_MONITOR_SCL_PIN
+            int "I2C SCL Pin for INA219"
+            default 22
+            range 0 33
+            depends on BAT_MONITOR_ENABLED
+            help
+                GPIO pin number for I2C SCL line connected to INA219.
+
+        config BAT_MONITOR_I2C_FREQ
+            int "I2C Frequency (Hz)"
+            default 100000
+            range 50000 400000
+            depends on BAT_MONITOR_ENABLED
+            help
+                I2C frequency in Hz for communication with INA219.
+
+        config BAT_MONITOR_UPDATE_INTERVAL
+            int "Battery Status Update Interval (ms)"
+            default 5000
+            range 1000 60000
+            depends on BAT_MONITOR_ENABLED
+            help
+                Interval in milliseconds between battery status updates.
+
+        config BAT_MONITOR_CELL_COUNT
+            int "LiPo Battery Cell Count"
+            default 2
+            range 1 6
+            depends on BAT_MONITOR_ENABLED
+            help
+                Number of cells in your LiPo battery (1S to 6S).
+                This will be used to calculate voltage thresholds automatically.
+
+        config BAT_MONITOR_CELL_LOW_PCT
+            int "Low Battery Percentage"
+            default 30
+            range 10 50
+            depends on BAT_MONITOR_ENABLED
+            help
+                Percentage at which to trigger low battery warning (typically 30%).
+
+        config BAT_MONITOR_CELL_CRITICAL_PCT
+            int "Critical Battery Percentage"
+            default 15
+            range 5 25
+            depends on BAT_MONITOR_ENABLED
+            help
+                Percentage at which to trigger critical battery warning (typically 15%).
+
+        config BAT_MONITOR_LOW_THRESHOLD
+            int "Low Battery Threshold (V x10) [DEPRECATED]"
+            default 74
+            depends on BAT_MONITOR_ENABLED
+            help
+                Deprecated. Use the cell-based settings above instead.
+                This setting will be removed in future versions.
+
+        config BAT_MONITOR_CRITICAL_THRESHOLD
+            int "Critical Battery Threshold (V x10) [DEPRECATED]"
+            default 68
+            depends on BAT_MONITOR_ENABLED
+            help
+                Deprecated. Use the cell-based settings above instead.
+                This setting will be removed in future versions.
+    endmenu
+
 endmenu
