@@ -46,6 +46,9 @@ static const int servo_mapping[LEG_COUNT][JOINT_COUNT] = {
     {9, 10, 11}    // Rear left leg - restored to original mapping
 };
 
+// Forward declarations
+static void robot_update_with_flag(bool positions_changed);
+
 // Robot initialization
 void robot_init(void) {
     ESP_LOGI(TAG, "Initializing quadruped robot");
@@ -170,8 +173,11 @@ esp_err_t robot_set_body_position(const vec3_t *position) {
     // Update body position
     robot.body_position = *position;
     
+    // Force update with changed flag
+    bool positions_changed = true;
+    
     // Recalculate all leg positions and update servos
-    robot_update();
+    robot_update_with_flag(positions_changed);
     
     return ESP_OK;
 }
@@ -185,8 +191,11 @@ esp_err_t robot_set_body_orientation(const orientation_t *orientation) {
     // Update body orientation
     robot.body_orientation = *orientation;
     
+    // Force update with changed flag
+    bool positions_changed = true;
+    
     // Recalculate all leg positions and update servos
-    robot_update();
+    robot_update_with_flag(positions_changed);
     
     return ESP_OK;
 }
@@ -323,8 +332,8 @@ esp_err_t robot_stop_gait(void) {
     return robot_stand(robot.gait_height);
 }
 
-// Update robot state
-void robot_update(void) {
+// Update robot state with explicit flag for position changes
+static void robot_update_with_flag(bool positions_changed) {
     if (robot.is_walking) {
         // Update walk cycle (implement according to chosen gait)
         // Simplified example for walking gait:
@@ -335,12 +344,19 @@ void robot_update(void) {
             robot.walk_cycle_progress = 0.0f;
         }
         
-        // Calculate foot positions according to walk phases
-        // (Actual implementation would vary by gait type)
-        
-        // For now, do nothing
+        // Walking always requires position updates
+        positions_changed = true;
     }
     
-    // Update servos from current state
-    robot_map_angles_to_servos();
+    // Update servos only when positions have changed
+    if (positions_changed) {
+        robot_map_angles_to_servos();
+    }
+}
+
+// Update robot state
+void robot_update(void) {
+    // By default, don't update positions unless walking
+    bool positions_changed = false;
+    robot_update_with_flag(positions_changed);
 }

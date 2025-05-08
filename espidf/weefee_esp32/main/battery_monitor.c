@@ -100,7 +100,6 @@ static void battery_monitor_task(void *pvParameters);
  */
 esp_err_t battery_monitor_init(int sda_pin, int scl_pin, uint32_t i2c_freq_hz) {
 #ifndef CONFIG_BAT_MONITOR_ENABLED
-    ESP_LOGW(TAG, "Battery monitoring is disabled in configuration");
     return ESP_ERR_NOT_SUPPORTED;
 #else
     if (battery_state.initialized) {
@@ -166,7 +165,6 @@ esp_err_t battery_monitor_init(int sda_pin, int scl_pin, uint32_t i2c_freq_hz) {
  */
 esp_err_t battery_monitor_configure(uint16_t calibration_value) {
 #ifndef CONFIG_BAT_MONITOR_ENABLED
-    ESP_LOGW(TAG, "Battery monitoring is disabled in configuration");
     return ESP_ERR_NOT_SUPPORTED;
 #else
     esp_err_t ret;
@@ -208,8 +206,6 @@ esp_err_t battery_monitor_configure(uint16_t calibration_value) {
  */
 esp_err_t battery_monitor_read(battery_info_t *info) {
 #ifndef CONFIG_BAT_MONITOR_ENABLED
-    ESP_LOGW(TAG, "Battery monitoring is disabled in configuration");
-    
     // Fill with default values when monitoring is disabled
     if (info != NULL) {
         info->voltage = DEFAULT_FULL_BATTERY;
@@ -322,7 +318,6 @@ battery_status_t battery_monitor_get_status(void) {
  */
 esp_err_t battery_monitor_start_task(uint32_t update_interval_ms) {
 #ifndef CONFIG_BAT_MONITOR_ENABLED
-    ESP_LOGW(TAG, "Battery monitoring is disabled in configuration");
     return ESP_ERR_NOT_SUPPORTED;
 #else
     if (!battery_state.initialized) {
@@ -372,7 +367,6 @@ esp_err_t battery_monitor_start_task(uint32_t update_interval_ms) {
  */
 esp_err_t battery_monitor_stop_task(void) {
 #ifndef CONFIG_BAT_MONITOR_ENABLED
-    ESP_LOGW(TAG, "Battery monitoring is disabled in configuration");
     return ESP_ERR_NOT_SUPPORTED;
 #else
     if (!battery_state.monitoring_active || battery_state.task_handle == NULL) {
@@ -397,7 +391,6 @@ esp_err_t battery_monitor_stop_task(void) {
  */
 esp_err_t battery_monitor_set_thresholds(float low_threshold, float critical_threshold) {
 #ifndef CONFIG_BAT_MONITOR_ENABLED
-    ESP_LOGW(TAG, "Battery monitoring is disabled in configuration");
     return ESP_ERR_NOT_SUPPORTED;
 #else
     if (low_threshold <= critical_threshold) {
