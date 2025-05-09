@@ -40,6 +40,10 @@ static const char *TAG = "kinematics";
 #define LOG_DEBUG(tag, format, ...) 
 #endif
 
+// Constants for angle conversions
+#define DEG_TO_RAD (M_PI / 180.0f)
+#define RAD_TO_DEG (180.0f / M_PI)
+
 // Robot dimensions (initialized from menuconfig, keeping values in millimeters)
 static float robot_body_length = CONFIG_ROBOT_BODY_LENGTH;  // millimeters
 static float robot_body_width = CONFIG_ROBOT_BODY_WIDTH;    // millimeters
@@ -65,20 +69,18 @@ void set_robot_dimensions(float body_length, float body_width, float coxa_length
 }
 
 esp_err_t inverse_kinematics(leg_t *leg, const vec3_t *target_pos, float angles_out[3]) {
-    // Variables for calculations
-    float coxa_angle, femur_angle, tibia_angle;
+    // Calculate leg vectors relative to mounting position
     float leg_x = target_pos->x - leg->mounting_position.x;
     float leg_y = target_pos->y - leg->mounting_position.y;
     float leg_z = target_pos->z - leg->mounting_position.z;
     
     // Horizontal distance from leg base to foot
     float L = sqrtf(leg_x * leg_x + leg_y * leg_y);
-    
-    // Distance for coxa (first segment)
     float L_coxa = leg->coxa_length;
+    float L2 = L - L_coxa;
     
     // Distance for femur/tibia joints
-    float L_femur_tibia = sqrtf((L - L_coxa) * (L - L_coxa) + leg_z * leg_z);
+    float L_femur_tibia = sqrtf(L2 * L2 + leg_z * leg_z);
     
     // Check if position is reachable
     if (L_femur_tibia > (leg->femur_length + leg->tibia_length)) {
@@ -87,85 +89,85 @@ esp_err_t inverse_kinematics(leg_t *leg, const vec3_t *target_pos, float angles_
         return ESP_ERR_INVALID_ARG;
     }
     
-    // Calculate coxa angle (horizontal rotation)
-    coxa_angle = atan2f(leg_y, leg_x) * 180.0f / M_PI;
+    // Calculate angles
+    angles_out[JOINT_COXA] = atan2f(leg_y, leg_x) * RAD_TO_DEG;
     
-    // Adjust positions for femur and tibia calculations
-    float L2 = L - L_coxa;
-    
-    // Calculate femur and tibia angles using law of cosines
+    // Law of cosines for femur and tibia
     float a = leg->femur_length;
     float b = leg->tibia_length;
     float c = L_femur_tibia;
+    float cos_alpha = (a*a + c*c - b*b) / (2.0f * a * c);
+    float cos_beta = (a*a + b*b - c*c) / (2.0f * a * b);
     
-    // Angle between horizontal and the line from femur to foot
-    float gamma = atan2f(leg_z, L2) * 180.0f / M_PI;
+    // Guard against domain errors in acos
+    cos_alpha = cos_alpha > 1.0f ? 1.0f : (cos_alpha < -1.0f ? -1.0f : cos_alpha);
+    cos_beta = cos_beta > 1.0f ? 1.0f : (cos_beta < -1.0f ? -1.0f : cos_beta);
     
-    // Angle between femur-foot line and femur segment
-    float alpha = acosf((a*a + c*c - b*b) / (2.0f * a * c)) * 180.0f / M_PI;
+    float gamma = atan2f(leg_z, L2) * RAD_TO_DEG;
+    float alpha = acosf(cos_alpha) * RAD_TO_DEG;
+    float beta = acosf(cos_beta) * RAD_TO_DEG;
     
-    // Angle between femur and tibia segments
-    float beta = acosf((a*a + b*b - c*c) / (2.0f * a * b)) * 180.0f / M_PI;
+    // Final angle calculations
+    angles_out[JOINT_FEMUR] = 90.0f - (gamma + alpha);
+    angles_out[JOINT_TIBIA] = 180.0f - beta;
     
-    // Final angle calculations (according to robot convention)
-    femur_angle = 90.0f - (gamma + alpha);
-    tibia_angle = 180.0f - beta;
-    
-    // Assign results
-    angles_out[JOINT_COXA] = coxa_angle;
-    angles_out[JOINT_FEMUR] = femur_angle;
-    angles_out[JOINT_TIBIA] = tibia_angle;
-    
-    // Using static variable to reduce the frequency of IK result logging
+#ifdef CONFIG_DEBUG_LOGS_ENABLED
+    // Log results periodically to reduce overhead
     static uint32_t last_ik_log = 0;
     uint32_t current_time = xTaskGetTickCount() * portTICK_PERIOD_MS;
     
-    // Log only once every 2 seconds to reduce overhead
     if (current_time - last_ik_log > 2000) {
-        LOG_DEBUG(TAG, "IK result: [%.2f, %.2f, %.2f] for position [%.2f, %.2f, %.2f]",
-                 coxa_angle, femur_angle, tibia_angle, target_pos->x, target_pos->y, target_pos->z);
+        ESP_LOGD(TAG, "IK result: [%.2f, %.2f, %.2f] for position [%.2f, %.2f, %.2f]",
+                 angles_out[JOINT_COXA], angles_out[JOINT_FEMUR], angles_out[JOINT_TIBIA], 
+                 target_pos->x, target_pos->y, target_pos->z);
         last_ik_log = current_time;
     }
+#endif
     
     return ESP_OK;
 }
 
 void forward_kinematics(const leg_t *leg, const float angles[3], vec3_t *position_out) {
-    // Convert angles to radians
-    float coxa_rad = angles[JOINT_COXA] * M_PI / 180.0f;
-    float femur_rad = angles[JOINT_FEMUR] * M_PI / 180.0f;
+    // Convert angles to radians once
+    float coxa_rad = angles[JOINT_COXA] * DEG_TO_RAD;
+    float femur_rad = (90.0f - angles[JOINT_FEMUR]) * DEG_TO_RAD;  // Pre-adjust for computation
+    float tibia_rad = (90.0f + angles[JOINT_TIBIA] - angles[JOINT_FEMUR]) * DEG_TO_RAD;
     
-    // Position after coxa rotation
-    float x_coxa = leg->coxa_length * cosf(coxa_rad);
-    float y_coxa = leg->coxa_length * sinf(coxa_rad);
-    float z_coxa = 0.0f;
+    // Calculate trig values once
+    float cos_coxa = cosf(coxa_rad);
+    float sin_coxa = sinf(coxa_rad);
+    float cos_femur = cosf(femur_rad);
+    float sin_femur = sinf(femur_rad);
+    float cos_tibia = cosf(tibia_rad);
+    float sin_tibia = sinf(tibia_rad);
     
-    // Adjustment for femur angle
-    float femur_rad_adjusted = (90.0f * M_PI / 180.0f) - femur_rad;
-    float x_femur = leg->femur_length * cosf(femur_rad_adjusted) * cosf(coxa_rad);
-    float y_femur = leg->femur_length * cosf(femur_rad_adjusted) * sinf(coxa_rad);
-    float z_femur = -leg->femur_length * sinf(femur_rad_adjusted);
+    // Calculate segment positions
+    float x_coxa = leg->coxa_length * cos_coxa;
+    float y_coxa = leg->coxa_length * sin_coxa;
     
-    // Adjustment for tibia angle - using angles[JOINT_TIBIA] directly instead of tibia_rad
-    float tibia_rad_adjusted = ((180.0f - angles[JOINT_TIBIA]) * M_PI / 180.0f) + femur_rad_adjusted;
-    float x_tibia = leg->tibia_length * cosf(tibia_rad_adjusted) * cosf(coxa_rad);
-    float y_tibia = leg->tibia_length * cosf(tibia_rad_adjusted) * sinf(coxa_rad);
-    float z_tibia = -leg->tibia_length * sinf(tibia_rad_adjusted);
+    float x_femur = leg->femur_length * cos_femur * cos_coxa;
+    float y_femur = leg->femur_length * cos_femur * sin_coxa;
+    float z_femur = leg->femur_length * sin_femur;
     
-    // Final foot position
+    float x_tibia = leg->tibia_length * cos_tibia * cos_coxa;
+    float y_tibia = leg->tibia_length * cos_tibia * sin_coxa;
+    float z_tibia = leg->tibia_length * sin_tibia;
+    
+    // Calculate final position
     position_out->x = leg->mounting_position.x + x_coxa + x_femur + x_tibia;
     position_out->y = leg->mounting_position.y + y_coxa + y_femur + y_tibia;
-    position_out->z = leg->mounting_position.z + z_coxa + z_femur + z_tibia;
+    position_out->z = leg->mounting_position.z - z_femur - z_tibia; // Note negative z is down
     
-    // Using static variable to reduce the frequency of FK result logging
+#ifdef CONFIG_DEBUG_LOGS_ENABLED
+    // Log results periodically
     static uint32_t last_fk_log = 0;
     uint32_t current_time = xTaskGetTickCount() * portTICK_PERIOD_MS;
     
-    // Log only once every 2 seconds
     if (current_time - last_fk_log > 2000) {
-        LOG_DEBUG(TAG, "FK result: [%.2f, %.2f, %.2f] for angles [%.2f, %.2f, %.2f]",
+        ESP_LOGD(TAG, "FK result: [%.2f, %.2f, %.2f] for angles [%.2f, %.2f, %.2f]",
                  position_out->x, position_out->y, position_out->z, 
                  angles[JOINT_COXA], angles[JOINT_FEMUR], angles[JOINT_TIBIA]);
         last_fk_log = current_time;
     }
+#endif
 }
