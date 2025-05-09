@@ -35,6 +35,13 @@
 
 static const char *TAG = "robot";
 
+// Conditional log macros to reduce log volume
+#ifdef CONFIG_DEBUG_LOGS_ENABLED
+#define LOG_DEBUG(tag, format, ...) ESP_LOGD(tag, format, ##__VA_ARGS__)
+#else
+#define LOG_DEBUG(tag, format, ...) 
+#endif
+
 // Robot instance
 static quadruped_t robot;
 
@@ -135,28 +142,46 @@ void robot_init(void) {
     ESP_LOGI(TAG, "Applying initial servo positions simultaneously to all legs...");
     for (int retry = 0; retry < 3; retry++) {
         apply_servo_positions(servo_positions);
+        // No need to log each attempt
         vTaskDelay(pdMS_TO_TICKS(50)); // Short delay between attempts
     }
     
-    ESP_LOGI(TAG, "Robot initialization complete with servos at configured angles (COXA:90°, FEMUR:45°, TIBIA:90°)");
+    ESP_LOGI(TAG, "Robot initialization complete with servos at configured angles");
+    LOG_DEBUG(TAG, "Initial angles - COXA:90°, FEMUR:45°, TIBIA:90°");
 }
 
 // Update servo angles from calculated angles
 void robot_map_angles_to_servos(void) {
     int servo_angles[SERVO_COUNT] = {0};
     
+    // Static variable to limit log frequency
+    static uint32_t last_angle_log = 0;
+    uint32_t current_time = xTaskGetTickCount() * portTICK_PERIOD_MS;
+    
     for (int i = 0; i < LEG_COUNT; i++) {
         for (int j = 0; j < JOINT_COUNT; j++) {
             // Convert calculated angles to servo angles
             int servo_angle = (int)robot.legs[i].angles[j];
             
-            // Safety limits
-            if (servo_angle < 0) servo_angle = 0;
-            if (servo_angle > 180) servo_angle = 180;
+            // Safety limits - log only if outside limits
+            if (servo_angle < 0) {
+                ESP_LOGW(TAG, "Leg %d, Joint %d: Angle %d below minimum (0), clamping", i, j, servo_angle);
+                servo_angle = 0;
+            }
+            if (servo_angle > 180) {
+                ESP_LOGW(TAG, "Leg %d, Joint %d: Angle %d above maximum (180), clamping", i, j, servo_angle);
+                servo_angle = 180;
+            }
             
             // Store in servo array
             servo_angles[robot.legs[i].servo_ids[j]] = servo_angle;
         }
+    }
+    
+    // Log angles only once every 3 seconds
+    if (current_time - last_angle_log > 3000) {
+        LOG_DEBUG(TAG, "Leg angles updated - cycle: %.2f", robot.walk_cycle_progress);
+        last_angle_log = current_time;
     }
     
     // Apply angles to servos
@@ -313,15 +338,13 @@ esp_err_t robot_start_gait(gait_type_t gait, float speed) {
     robot.is_walking = true;
     robot.walk_cycle_progress = 0.0f;
     
-    // Gait implementation is done in robot_update
-    
     return ESP_OK;
 }
 
 // Stop current gait
 esp_err_t robot_stop_gait(void) {
     if (!robot.is_walking) {
-        return ESP_OK;
+        return ESP_OK; // Already stopped, no need to log
     }
     
     ESP_LOGI(TAG, "Stopping gait");
@@ -334,14 +357,21 @@ esp_err_t robot_stop_gait(void) {
 
 // Update robot state with explicit flag for position changes
 static void robot_update_with_flag(bool positions_changed) {
+    static uint32_t last_cycle_log = 0;
+    uint32_t current_time = xTaskGetTickCount() * portTICK_PERIOD_MS;
+    
     if (robot.is_walking) {
         // Update walk cycle (implement according to chosen gait)
-        // Simplified example for walking gait:
         
         // Advance cycle by 1%
         robot.walk_cycle_progress += 0.01f;
         if (robot.walk_cycle_progress >= 1.0f) {
             robot.walk_cycle_progress = 0.0f;
+            // Log only at each complete walking cycle to reduce verbosity
+            if (current_time - last_cycle_log > 2000) { // Maximum once every 2 seconds
+                LOG_DEBUG(TAG, "Walk cycle complete");
+                last_cycle_log = current_time;
+            }
         }
         
         // Walking always requires position updates

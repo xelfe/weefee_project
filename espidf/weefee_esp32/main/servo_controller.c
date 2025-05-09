@@ -36,6 +36,13 @@
 
 static const char *TAG = "servo_controller";
 
+// Conditional log macros to reduce log volume
+#ifdef CONFIG_DEBUG_LOGS_ENABLED
+#define LOG_DEBUG(tag, format, ...) ESP_LOGD(tag, format, ##__VA_ARGS__)
+#else
+#define LOG_DEBUG(tag, format, ...) 
+#endif
+
 // GPIOs used for servo control - values loaded from menuconfig
 static const int servo_pins[SERVO_COUNT] = {
     CONFIG_SERVO_PIN_0, CONFIG_SERVO_PIN_1, CONFIG_SERVO_PIN_2, 
@@ -49,12 +56,13 @@ static int servo_values[SERVO_COUNT] = {0};
 
 // Initialize the LEDC timers and channels for PWM control
 void setup_servos() {
-    ESP_LOGI(TAG, "Initializing servos with pins: %d, %d, %d, %d, %d, %d, %d, %d, %d, %d, %d, %d",
+    ESP_LOGI(TAG, "Initializing servos");
+    LOG_DEBUG(TAG, "Servo pins: %d, %d, %d, %d, %d, %d, %d, %d, %d, %d, %d, %d",
              servo_pins[0], servo_pins[1], servo_pins[2], servo_pins[3], 
              servo_pins[4], servo_pins[5], servo_pins[6], servo_pins[7], 
              servo_pins[8], servo_pins[9], servo_pins[10], servo_pins[11]);
     
-    ESP_LOGI(TAG, "Servo parameters: Freq=%dHz, Min pulse=%dus, Max pulse=%dus",
+    LOG_DEBUG(TAG, "Servo parameters: Freq=%dHz, Min pulse=%dus, Max pulse=%dus",
              SERVO_FREQ, SERVO_MIN_PULSEWIDTH, SERVO_MAX_PULSEWIDTH);
     
     // High-speed timer for first 8 servos
@@ -104,14 +112,24 @@ uint32_t angle_to_duty(int angle) {
 
 // Applies servo angles with synchronized update
 void apply_servo_positions(const int positions[SERVO_COUNT]) {
-    // Reduced log level to DEBUG instead of INFO to avoid console pollution
-    ESP_LOGD(TAG, "Applying servo positions: front legs (0-5), rear legs (6-11)");
+    static uint32_t last_position_log = 0;
+    uint32_t current_time = xTaskGetTickCount() * portTICK_PERIOD_MS;
+    
+    // Log positions only every 5 seconds to reduce logging volume
+    if (current_time - last_position_log > 5000) {
+        LOG_DEBUG(TAG, "Applying servo positions: front legs (0-5), rear legs (6-11)");
+        last_position_log = current_time;
+    }
     
     // Preprocessing: calculate duty cycles for all servos
     uint32_t duties[SERVO_COUNT];
     for (int i = 0; i < SERVO_COUNT; i++) {
         duties[i] = angle_to_duty(positions[i]);
-        ESP_LOGD(TAG, "Servo %d set to %d° (duty=%lu)", i, positions[i], duties[i]);
+        
+        // Detailed logging only when debug logs are enabled and at reduced frequency
+        if (current_time - last_position_log <= 10) {
+            LOG_DEBUG(TAG, "Servo %d set to %d° (duty=%lu)", i, positions[i], duties[i]);
+        }
     }
     
     // Apply duty values to all channels without updating them immediately
@@ -129,8 +147,10 @@ void apply_servo_positions(const int positions[SERVO_COUNT]) {
     }
     portENABLE_INTERRUPTS();
     
-    // Reduced log level to DEBUG instead of INFO
-    ESP_LOGD(TAG, "All servo positions updated simultaneously");
+    // Only log this if we're also logging the initial positions message
+    if (current_time - last_position_log <= 10) {
+        LOG_DEBUG(TAG, "All servo positions updated simultaneously");
+    }
 }
 
 // Updates the servo values array

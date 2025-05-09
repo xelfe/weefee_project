@@ -51,20 +51,27 @@
 #include <rmw_microros/rmw_microros.h>
 #endif
 
+// Reduce debug log output for better performance
+#ifdef CONFIG_DEBUG_LOGS_ENABLED
+#define LOG_DEBUG(tag, format, ...) ESP_LOGI(tag, format, ##__VA_ARGS__)
+#else
+#define LOG_DEBUG(tag, format, ...) do {} while(0)
+#endif
+
 // Logging tag
 static const char *TAG = "weefee_main";
 
-// Macros to handle error checking
-#define RCCHECK(fn) { rcl_ret_t rc = fn; if((rc != RCL_RET_OK)) { ESP_LOGE(TAG, "Failed status on line %d: %ld", __LINE__, (long)rc); vTaskDelete(NULL); }}
-#define RCSOFTCHECK(fn) { rcl_ret_t rc = fn; if((rc != RCL_RET_OK)) { ESP_LOGW(TAG, "Non-fatal error on line %d: %ld", __LINE__, (long)rc); }}
+// Define error checking macros with less verbose output
+#define RCCHECK(fn) { rcl_ret_t rc = fn; if((rc != RCL_RET_OK)) { ESP_LOGE(TAG, "RC error %ld at %d", (long)rc, __LINE__); vTaskDelete(NULL); }}
+#define RCSOFTCHECK(fn) { rcl_ret_t rc = fn; if((rc != RCL_RET_OK)) { ESP_LOGW(TAG, "RC warning %ld at %d", (long)rc, __LINE__); }}
 
 // Configuration constants
 #define MAX_INIT_ATTEMPTS 5
 #define INIT_ATTEMPT_DELAY_MS 500
 #define TOPIC_SWITCH_DELAY_MS 1000
 #define PING_TIMEOUT_MS 500
-#define MESSAGE_BUFFER_SIZE 256
-#define STATUS_BUFFER_SIZE 100
+#define MESSAGE_BUFFER_SIZE 512  // Increased from 256
+#define STATUS_BUFFER_SIZE 128   // Increased from 100
 
 // Command prefixes for differentiating command types
 #define CMD_PREFIX_SERVO "servo:"
@@ -141,6 +148,11 @@ static const char* process_battery_status(const battery_info_t *battery_info) {
  * This is called by the battery monitoring task when status changes
  */
 static void battery_status_callback(void) {
+    // Static check to avoid unnecessary calls
+    #ifndef CONFIG_BAT_MONITOR_ENABLED
+    return;
+    #endif
+
     // Get current battery info
     battery_info_t battery_info;
     if (battery_monitor_read(&battery_info) == ESP_OK) {
@@ -209,11 +221,12 @@ static void cleanup_messages(microros_context_t *ctx) {
  */
 static bool check_agent_connection(void) {
     #ifdef CONFIG_MICRO_ROS_ESP_XRCE_DDS_MIDDLEWARE
-    bool connected = rmw_uros_ping_agent(PING_TIMEOUT_MS, MAX_INIT_ATTEMPTS);
+    bool connected = rmw_uros_ping_agent(PING_TIMEOUT_MS, 1); // Reduced to a single attempt for periodic checking
     if (!connected) {
-        ESP_LOGW(TAG, "Agent not responding to ping");
+        // Don't display warning for each periodic check (will be displayed when a disconnection is detected)
+        LOG_DEBUG(TAG, "Agent not responding to ping");
     } else {
-        ESP_LOGI(TAG, "Agent connection verified");
+        LOG_DEBUG(TAG, "Agent connection verified"); // Use LOG_DEBUG instead of ESP_LOGI
     }
     return connected;
     #else
@@ -609,7 +622,7 @@ static bool init_microros(microros_context_t *ctx) {
             "robot_command")) {
         return false;
     }
-    vTaskDelay(pdMS_TO_TICKS(TOPIC_SWITCH_DELAY_MS * 2));  // Délai plus long
+    vTaskDelay(pdMS_TO_TICKS(TOPIC_SWITCH_DELAY_MS * 2));  // Longer delay
     
     if (!init_subscription(
             &ctx->pose_sub,
@@ -618,7 +631,7 @@ static bool init_microros(microros_context_t *ctx) {
             "robot_pose")) {
         return false;
     }
-    vTaskDelay(pdMS_TO_TICKS(TOPIC_SWITCH_DELAY_MS * 2));  // Délai plus long
+    vTaskDelay(pdMS_TO_TICKS(TOPIC_SWITCH_DELAY_MS * 2));  // Longer delay
     
     if (!init_publisher(
             &ctx->status_pub,
@@ -627,10 +640,10 @@ static bool init_microros(microros_context_t *ctx) {
             "robot_status")) {
         return false;
     }
-    vTaskDelay(pdMS_TO_TICKS(TOPIC_SWITCH_DELAY_MS * 2));  // Délai plus long après le dernier endpoint
+    vTaskDelay(pdMS_TO_TICKS(TOPIC_SWITCH_DELAY_MS * 2));  // Longer delay after the last endpoint
 
-    // Important: executor avec capacité explicite de 3 au lieu de 2
-    // Exemple ping_pong utilise explicitement la capacité
+    // Important: executor with explicit capacity of 3 instead of 2
+    // Example ping_pong explicitly uses capacity
     ESP_LOGI(TAG, "Initializing executor with capacity 3");
     RCCHECK(rclc_executor_init(&ctx->executor, &ctx->support.context, 3, &allocator));
     
@@ -638,17 +651,17 @@ static bool init_microros(microros_context_t *ctx) {
     RCCHECK(rclc_executor_add_subscription(
         &ctx->executor, &ctx->command_sub, &ctx->command_msg,
         &command_callback, ON_NEW_DATA));
-    vTaskDelay(pdMS_TO_TICKS(500));  // Petit délai entre chaque ajout
+    vTaskDelay(pdMS_TO_TICKS(500));  // Small delay between each addition
         
     RCCHECK(rclc_executor_add_subscription(
         &ctx->executor, &ctx->pose_sub, &ctx->pose_msg,
         &pose_callback, ON_NEW_DATA));
 
-    // Donner du temps au système pour initialiser complètement
+    // Give the system time to fully initialize
     vTaskDelay(pdMS_TO_TICKS(1000));
     ESP_LOGI(TAG, "micro-ROS initialization complete");
     
-    // Exécuter un premier cycle de l'executor pour s'assurer qu'il fonctionne
+    // Run a first executor cycle to ensure it works
     rclc_executor_spin_some(&ctx->executor, RCL_MS_TO_NS(10));
     vTaskDelay(pdMS_TO_TICKS(100));
     ESP_LOGI(TAG, "First executor cycle completed");
@@ -697,10 +710,10 @@ static void micro_ros_task(void *arg) {
                 "Initial battery status: %.2fV (%.1f%%)", 
                 battery_info.voltage, battery_info.remaining_pct);
         publish_status(&g_microros_ctx, status_buf);
-        ESP_LOGI(TAG, "Initial battery status message sent: %s", status_buf);
+        LOG_DEBUG(TAG, "Initial battery status message sent: %s", status_buf);
     } else {
         publish_status(&g_microros_ctx, "ROS connectivity test: battery monitor initialized");
-        ESP_LOGI(TAG, "Sent test message to robot_status topic");
+        LOG_DEBUG(TAG, "Sent test message to robot_status topic");
     }
 
     // Variables for checking connection health
@@ -721,7 +734,7 @@ static void micro_ros_task(void *arg) {
             
             if (!is_connected && was_connected) {
                 // Instead of displaying an error message, we just log informational status
-                ESP_LOGI(TAG, "Testing connection to micro-ROS agent: waiting for response");
+                LOG_DEBUG(TAG, "Testing connection to micro-ROS agent: waiting for response");
                 
                 // Force a reconnection with more attempts in case of a real problem
                 is_connected = rmw_uros_ping_agent(PING_TIMEOUT_MS * 2, 3);

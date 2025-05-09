@@ -35,6 +35,13 @@
 
 static const char *TAG = "battery_monitor";
 
+// Debug logging macro - uses the same definition as in main.c
+#ifdef CONFIG_DEBUG_LOGS_ENABLED
+#define LOG_DEBUG(tag, format, ...) ESP_LOGI(tag, format, ##__VA_ARGS__)
+#else
+#define LOG_DEBUG(tag, format, ...) do {} while(0)
+#endif
+
 // I2C port used for communication
 #define I2C_PORT            I2C_NUM_0
 
@@ -108,10 +115,10 @@ esp_err_t battery_monitor_init(int sda_pin, int scl_pin, uint32_t i2c_freq_hz) {
     }
     
     ESP_LOGI(TAG, "Initializing battery monitor with INA219 sensor");
-    ESP_LOGI(TAG, "I2C configuration: SDA=%d, SCL=%d, Freq=%lu Hz", sda_pin, scl_pin, i2c_freq_hz);
-    ESP_LOGI(TAG, "Battery configuration: %d cells, Full voltage: %.2fV, Empty voltage: %.2fV", 
+    LOG_DEBUG(TAG, "I2C configuration: SDA=%d, SCL=%d, Freq=%lu Hz", sda_pin, scl_pin, i2c_freq_hz);
+    LOG_DEBUG(TAG, "Battery configuration: %d cells, Full voltage: %.2fV, Empty voltage: %.2fV", 
              CELL_COUNT, DEFAULT_FULL_BATTERY, DEFAULT_EMPTY_BATTERY);
-    ESP_LOGI(TAG, "Battery thresholds: Low: %.2fV (%.0f%%), Critical: %.2fV (%.0f%%)",
+    LOG_DEBUG(TAG, "Battery thresholds: Low: %.2fV (%.0f%%), Critical: %.2fV (%.0f%%)",
              DEFAULT_LOW_THRESHOLD, (float)CELL_LOW_PCT, DEFAULT_CRITICAL_THRESHOLD, (float)CELL_CRITICAL_PCT);
 
     // Configure I2C
@@ -196,7 +203,7 @@ esp_err_t battery_monitor_configure(uint16_t calibration_value) {
         return ret;
     }
 
-    ESP_LOGI(TAG, "INA219 configured with calibration value: %u", calibration_value);
+    LOG_DEBUG(TAG, "INA219 configured with calibration value: %u", calibration_value);
     return ESP_OK;
 #endif
 }
@@ -314,9 +321,9 @@ battery_status_t battery_monitor_get_status(void) {
 }
 
 /**
- * @brief Start a background task to monitor battery status
+ * @brief Start battery monitoring task
  */
-esp_err_t battery_monitor_start_task(uint32_t update_interval_ms) {
+esp_err_t battery_monitor_start(uint32_t interval_ms) {
 #ifndef CONFIG_BAT_MONITOR_ENABLED
     return ESP_ERR_NOT_SUPPORTED;
 #else
@@ -326,64 +333,128 @@ esp_err_t battery_monitor_start_task(uint32_t update_interval_ms) {
     }
 
     if (battery_state.monitoring_active) {
-        ESP_LOGW(TAG, "Battery monitoring task already running");
+        LOG_DEBUG(TAG, "Battery monitoring already active");
         return ESP_OK;
     }
 
-    ESP_LOGI(TAG, "Starting battery monitoring task with interval: %lu ms", update_interval_ms);
-
-    // Create task parameters structure
-    uint32_t *interval = (uint32_t *)malloc(sizeof(uint32_t));
-    if (interval == NULL) {
-        ESP_LOGE(TAG, "Failed to allocate memory for task parameters");
-        return ESP_ERR_NO_MEM;
-    }
-    *interval = update_interval_ms;
-
     // Create battery monitoring task
+    ESP_LOGI(TAG, "Starting battery monitoring task (interval: %lu ms)", interval_ms);
     BaseType_t ret = xTaskCreate(
         battery_monitor_task,
-        "battery_monitor",
-        4096,               // Stack size
-        (void *)interval,   // Task parameters
-        tskIDLE_PRIORITY+1, // Priority
+        "battery_mon",
+        2048,  // Stack size
+        (void*)interval_ms,
+        3,     // Priority
         &battery_state.task_handle
     );
 
     if (ret != pdPASS) {
         ESP_LOGE(TAG, "Failed to create battery monitoring task");
-        free(interval);
         return ESP_FAIL;
     }
 
     battery_state.monitoring_active = true;
-    ESP_LOGI(TAG, "Battery monitoring task started");
     return ESP_OK;
 #endif
 }
 
 /**
- * @brief Stop the battery monitoring task
+ * @brief Stop battery monitoring task
  */
-esp_err_t battery_monitor_stop_task(void) {
+esp_err_t battery_monitor_stop(void) {
 #ifndef CONFIG_BAT_MONITOR_ENABLED
     return ESP_ERR_NOT_SUPPORTED;
 #else
-    if (!battery_state.monitoring_active || battery_state.task_handle == NULL) {
-        ESP_LOGW(TAG, "Battery monitoring task not running");
+    if (!battery_state.monitoring_active) {
         return ESP_OK;
     }
 
-    ESP_LOGI(TAG, "Stopping battery monitoring task");
-    
-    // Delete the task
-    vTaskDelete(battery_state.task_handle);
-    battery_state.task_handle = NULL;
+    if (battery_state.task_handle != NULL) {
+        LOG_DEBUG(TAG, "Stopping battery monitoring task");
+        vTaskDelete(battery_state.task_handle);
+        battery_state.task_handle = NULL;
+    }
+
     battery_state.monitoring_active = false;
-    
-    ESP_LOGI(TAG, "Battery monitoring task stopped");
+    ESP_LOGI(TAG, "Battery monitoring stopped");
     return ESP_OK;
 #endif
+}
+
+/**
+ * @brief Get the last battery information
+ */
+esp_err_t battery_monitor_get_info(battery_info_t *info) {
+    if (info == NULL) {
+        return ESP_ERR_INVALID_ARG;
+    }
+
+#ifndef CONFIG_BAT_MONITOR_ENABLED
+    // Return default values
+    info->voltage = DEFAULT_FULL_BATTERY;
+    info->current = 0.0f;
+    info->power = 0.0f;
+    info->remaining_pct = 100.0f;
+    info->status = BATTERY_OK;
+    return ESP_OK;
+#else
+    if (!battery_state.initialized) {
+        ESP_LOGE(TAG, "Battery monitor not initialized");
+        return ESP_ERR_INVALID_STATE;
+    }
+
+    // Copy last read battery info
+    memcpy(info, &battery_state.info[0], sizeof(battery_info_t));
+    return ESP_OK;
+#endif
+}
+
+// Battery monitoring task that periodically reads battery info
+static void battery_monitor_task(void *pvParameters) {
+    uint32_t interval_ms = (uint32_t)pvParameters;
+    uint32_t update_count = 0;
+    
+    // Log once at startup
+    ESP_LOGI(TAG, "Battery monitoring task started");
+
+    while (1) {
+        // Read battery info
+        battery_info_t info;
+        esp_err_t ret = battery_monitor_read(&info);
+        
+        if (ret == ESP_OK) {
+            // Update status based on voltage thresholds
+            if (info.voltage < battery_state.critical_threshold) {
+                info.status = BATTERY_CRITICAL;
+                // Always log critical battery status
+                ESP_LOGW(TAG, "BATTERY CRITICAL: %.2fV (%.1f%%)", info.voltage, info.remaining_pct);
+            } else if (info.voltage < battery_state.low_threshold) {
+                info.status = BATTERY_LOW;
+                // Log low battery only every 10 updates to avoid log spam
+                if (update_count % 10 == 0) {
+                    ESP_LOGW(TAG, "Battery low: %.2fV (%.1f%%)", info.voltage, info.remaining_pct);
+                }
+            } else {
+                info.status = BATTERY_OK;
+                // Log normal battery status less frequently (every 30 updates)
+                if (update_count % 30 == 0) {
+                    LOG_DEBUG(TAG, "Battery status: %.2fV (%.1f%%), %.2fmA, %.2fmW", 
+                             info.voltage, info.remaining_pct, info.current, info.power);
+                }
+            }
+            
+            // Store updated info
+            memcpy(&battery_state.info[0], &info, sizeof(battery_info_t));
+        } else {
+            // Log read errors, but not too often
+            if (update_count % 20 == 0) {
+                ESP_LOGW(TAG, "Failed to read battery info: %s", esp_err_to_name(ret));
+            }
+        }
+        
+        update_count++;
+        vTaskDelay(pdMS_TO_TICKS(interval_ms));
+    }
 }
 
 /**
@@ -401,80 +472,10 @@ esp_err_t battery_monitor_set_thresholds(float low_threshold, float critical_thr
     battery_state.low_threshold = low_threshold;
     battery_state.critical_threshold = critical_threshold;
     
-    ESP_LOGI(TAG, "Battery thresholds set: low=%.2fV, critical=%.2fV", 
+    LOG_DEBUG(TAG, "Battery thresholds set: low=%.2fV, critical=%.2fV", 
              low_threshold, critical_threshold);
     return ESP_OK;
 #endif
-}
-
-/**
- * @brief Battery monitoring task function
- */
-static void battery_monitor_task(void *pvParameters) {
-    uint32_t interval_ms = *(uint32_t *)pvParameters;
-    free(pvParameters); // Free the allocated memory for parameters
-    
-    ESP_LOGI(TAG, "Battery monitor task running with interval %lu ms", interval_ms);
-    ESP_LOGI(TAG, "Battery thresholds in use: low=%.2fV, critical=%.2fV, full=%.2fV, empty=%.2fV",
-             battery_state.low_threshold, battery_state.critical_threshold,
-             battery_state.full_voltage, battery_state.empty_voltage);
-    
-    // Wait a bit for ROS to initialize fully before first reading
-    vTaskDelay(pdMS_TO_TICKS(3000));
-    
-    battery_info_t info;
-    esp_err_t ret;
-    
-    // Initial reading to make sure everything works
-    ret = battery_monitor_read(&info);
-    if (ret != ESP_OK) {
-        ESP_LOGE(TAG, "Initial battery reading failed: %s", esp_err_to_name(ret));
-    } else {
-        // Always log the initial reading with INFO level
-        ESP_LOGI(TAG, "Initial battery reading: %.2fV (%.1f%%), Current: %.1fmA, Power: %.1fmW, Status: %d", 
-                info.voltage, info.remaining_pct, info.current, info.power, info.status);
-                
-        // Force a log every minute and on status changes
-        static uint32_t last_log_time = 0;
-        static battery_status_t last_status = BATTERY_UNKNOWN;
-        
-        if (info.status != last_status) {
-            ESP_LOGI(TAG, "Battery status changed to: %d (%.2fV, %.1f%%)", 
-                    info.status, info.voltage, info.remaining_pct);
-            last_status = info.status;
-        }
-    }
-    
-    while (battery_state.monitoring_active) {
-        // Read current battery information
-        ret = battery_monitor_read(&info);
-        if (ret != ESP_OK) {
-            ESP_LOGW(TAG, "Failed to read battery info: %s", esp_err_to_name(ret));
-        } else {
-            // Log only on significant changes or at long intervals to reduce noise
-            static uint32_t last_log_time = 0;
-            uint32_t now = xTaskGetTickCount() * portTICK_PERIOD_MS;
-            
-            if ((now - last_log_time) > 60000) {  // Log at most once per minute
-                ESP_LOGI(TAG, "Battery: %.2fV (%.1f%%), Current: %.1fmA, Power: %.1fmW, Status: %d", 
-                        info.voltage, info.remaining_pct, info.current, info.power, info.status);
-                last_log_time = now;
-            }
-            
-            // Check for critical battery level
-            if (info.status == BATTERY_CRITICAL) {
-                ESP_LOGW(TAG, "CRITICAL BATTERY LEVEL: %.2fV (%.1f%%)", info.voltage, info.remaining_pct);
-            } else if (info.status == BATTERY_LOW && battery_state.info[0].status != BATTERY_LOW) {
-                ESP_LOGW(TAG, "LOW BATTERY LEVEL: %.2fV (%.1f%%)", info.voltage, info.remaining_pct);
-            }
-        }
-        
-        // Sleep for the specified interval
-        vTaskDelay(pdMS_TO_TICKS(interval_ms));
-    }
-    
-    ESP_LOGI(TAG, "Battery monitor task terminated");
-    vTaskDelete(NULL);
 }
 
 /**
@@ -538,25 +539,18 @@ static esp_err_t ina219_read_register(uint8_t reg, uint16_t *value) {
 }
 
 /**
- * @brief Check if INA219 device is present on I2C bus
- * @return ESP_OK if device responds, error otherwise
+ * @brief Check if INA219 sensor is present on I2C bus
  */
 static esp_err_t ina219_check_presence(void) {
-    i2c_cmd_handle_t cmd = i2c_cmd_link_create();
-    i2c_master_start(cmd);
-    i2c_master_write_byte(cmd, (INA219_I2C_ADDRESS << 1) | I2C_MASTER_WRITE, true);
-    i2c_master_stop(cmd);
-    
-    esp_err_t ret = i2c_master_cmd_begin(I2C_PORT, cmd, pdMS_TO_TICKS(100));
-    i2c_cmd_link_delete(cmd);
+    uint16_t value;
+    esp_err_t ret = ina219_read_register(INA219_REG_CONFIG, &value);
     
     if (ret != ESP_OK) {
-        ESP_LOGE(TAG, "INA219 device not found on I2C bus at address 0x%02x: %s", 
-                 INA219_I2C_ADDRESS, esp_err_to_name(ret));
-        ESP_LOGE(TAG, "Please check wiring: SDA and SCL connections, pull-ups, and power to the module");
-    } else {
-        ESP_LOGI(TAG, "INA219 device detected on I2C bus");
+        ESP_LOGE(TAG, "INA219 sensor not found on I2C bus (addr: 0x%02X)", INA219_I2C_ADDRESS);
+        return ESP_ERR_NOT_FOUND;
     }
     
-    return ret;
+    LOG_DEBUG(TAG, "INA219 sensor found at address 0x%02X, config reg: 0x%04X", 
+             INA219_I2C_ADDRESS, value);
+    return ESP_OK;
 }
