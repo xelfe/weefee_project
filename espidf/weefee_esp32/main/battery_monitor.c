@@ -304,7 +304,7 @@ esp_err_t battery_monitor_read(battery_info_t *info) {
  */
 battery_status_t battery_monitor_get_status(void) {
 #ifndef CONFIG_BAT_MONITOR_ENABLED
-    return BATTERY_OK;  // Toujours retourner OK quand le monitoring est désactivé
+    return BATTERY_OK;  // Always return OK when monitoring is disabled
 #else
     if (!battery_state.initialized) {
         return BATTERY_UNKNOWN;

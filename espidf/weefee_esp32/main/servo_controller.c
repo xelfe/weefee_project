@@ -104,7 +104,7 @@ uint32_t angle_to_duty(int angle) {
 
 // Applies servo angles with synchronized update
 void apply_servo_positions(const int positions[SERVO_COUNT]) {
-    // Réduit le niveau de log à DEBUG au lieu de INFO pour éviter de polluer la console
+    // Reduced log level to DEBUG instead of INFO to avoid console pollution
     ESP_LOGD(TAG, "Applying servo positions: front legs (0-5), rear legs (6-11)");
     
     // Preprocessing: calculate duty cycles for all servos
@@ -129,7 +129,7 @@ void apply_servo_positions(const int positions[SERVO_COUNT]) {
     }
     portENABLE_INTERRUPTS();
     
-    // Réduit le niveau de log à DEBUG au lieu de INFO
+    // Reduced log level to DEBUG instead of INFO
     ESP_LOGD(TAG, "All servo positions updated simultaneously");
 }
 

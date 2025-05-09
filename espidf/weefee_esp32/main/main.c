@@ -183,6 +183,15 @@ static void init_messages(microros_context_t *ctx) {
     const char* initial_status = "Robot initialized";
     ctx->status_msg.data.size = strlen(initial_status) + 1;
     memcpy(ctx->status_msg.data.data, initial_status, ctx->status_msg.data.size);
+    
+    // Also initialize the pose message
+    ctx->pose_msg.position.x = 0.0;
+    ctx->pose_msg.position.y = 0.0;
+    ctx->pose_msg.position.z = 0.0;
+    ctx->pose_msg.orientation.x = 0.0;
+    ctx->pose_msg.orientation.y = 0.0;
+    ctx->pose_msg.orientation.z = 0.0;
+    ctx->pose_msg.orientation.w = 1.0;
 }
 
 /**
@@ -226,7 +235,8 @@ static bool init_subscription(rcl_subscription_t *sub,
                               const char *topic_name) {
     
     for (int attempt = 1; attempt <= MAX_INIT_ATTEMPTS; attempt++) {
-        rcl_ret_t rc = rclc_subscription_init_default(
+        // Use best_effort instead of default to improve responsiveness
+        rcl_ret_t rc = rclc_subscription_init_best_effort(
             sub, node, type_support, topic_name);
             
         if (rc == RCL_RET_OK) {
@@ -258,7 +268,8 @@ static bool init_publisher(rcl_publisher_t *pub,
                            const char *topic_name) {
     
     for (int attempt = 1; attempt <= MAX_INIT_ATTEMPTS; attempt++) {
-        rcl_ret_t rc = rclc_publisher_init_default(
+        // Use best_effort instead of default to improve responsiveness
+        rcl_ret_t rc = rclc_publisher_init_best_effort(
             pub, node, type_support, topic_name);
             
         if (rc == RCL_RET_OK) {
@@ -458,12 +469,27 @@ static void pose_callback(const void *msgin) {
 static void command_callback(const void *msgin) {
     const std_msgs__msg__String *msg = (const std_msgs__msg__String *)msgin;
     
-    // Extract command
-    char command[MESSAGE_BUFFER_SIZE] = {0};
-    strncpy(command, msg->data.data, msg->data.size < MESSAGE_BUFFER_SIZE ? 
-            msg->data.size : MESSAGE_BUFFER_SIZE - 1);
+    // Add NULL data check
+    if (msg == NULL || msg->data.data == NULL || msg->data.size == 0) {
+        ESP_LOGW(TAG, "Received empty command message");
+        return;
+    }
     
-    ESP_LOGI(TAG, "Received command: %s", command);
+    // Ensure string is null-terminated
+    char command[MESSAGE_BUFFER_SIZE] = {0};
+    size_t copy_size = (msg->data.size < MESSAGE_BUFFER_SIZE-1) ? msg->data.size : MESSAGE_BUFFER_SIZE-1;
+    memcpy(command, msg->data.data, copy_size);
+    command[copy_size] = '\0';  // Guarantee string termination
+    
+    // Log receipt with hex values for debugging
+    ESP_LOGI(TAG, "Received command: %s (size: %d)", command, (int)msg->data.size);
+    ESP_LOGI(TAG, "First bytes in hex: %02X %02X %02X %02X", 
+             msg->data.size > 0 ? (unsigned char)msg->data.data[0] : 0,
+             msg->data.size > 1 ? (unsigned char)msg->data.data[1] : 0,
+             msg->data.size > 2 ? (unsigned char)msg->data.data[2] : 0,
+             msg->data.size > 3 ? (unsigned char)msg->data.data[3] : 0);
+
+    // The rest of the command processing code remains unchanged
     
     // Check command type by prefix
     if (strncmp(command, CMD_PREFIX_SERVO, strlen(CMD_PREFIX_SERVO)) == 0) {
@@ -545,8 +571,22 @@ static bool init_microros(microros_context_t *ctx) {
         return false;
     }
     
-    // Optional agent connection check
-    check_agent_connection();
+    // Explicit connection verification and longer wait
+    bool agent_available = false;
+    for (int i = 0; i < 10; i++) {  // Additional attempts
+        agent_available = check_agent_connection();
+        if (agent_available) {
+            ESP_LOGI(TAG, "Agent connection verified on attempt %d", i+1);
+            break;
+        }
+        ESP_LOGW(TAG, "Agent ping failed (attempt %d/10), retrying...", i+1);
+        vTaskDelay(pdMS_TO_TICKS(1000));  // Longer wait between attempts
+    }
+    
+    if (!agent_available) {
+        ESP_LOGE(TAG, "Failed to ping micro-ROS agent after multiple attempts");
+        ESP_LOGI(TAG, "Will continue anyway as this might be a network timing issue");
+    }
     #endif
 
     // Initialize support
@@ -561,7 +601,7 @@ static bool init_microros(microros_context_t *ctx) {
     init_messages(ctx);
     vTaskDelay(pdMS_TO_TICKS(TOPIC_SWITCH_DELAY_MS));
     
-    // Initialize subscriptions and publishers
+    // Initialize subscriptions and publishers with longer delays between initializations
     if (!init_subscription(
             &ctx->command_sub,
             &ctx->node,
@@ -569,7 +609,7 @@ static bool init_microros(microros_context_t *ctx) {
             "robot_command")) {
         return false;
     }
-    vTaskDelay(pdMS_TO_TICKS(TOPIC_SWITCH_DELAY_MS));
+    vTaskDelay(pdMS_TO_TICKS(TOPIC_SWITCH_DELAY_MS * 2));  // Délai plus long
     
     if (!init_subscription(
             &ctx->pose_sub,
@@ -578,7 +618,7 @@ static bool init_microros(microros_context_t *ctx) {
             "robot_pose")) {
         return false;
     }
-    vTaskDelay(pdMS_TO_TICKS(TOPIC_SWITCH_DELAY_MS));
+    vTaskDelay(pdMS_TO_TICKS(TOPIC_SWITCH_DELAY_MS * 2));  // Délai plus long
     
     if (!init_publisher(
             &ctx->status_pub,
@@ -587,19 +627,32 @@ static bool init_microros(microros_context_t *ctx) {
             "robot_status")) {
         return false;
     }
+    vTaskDelay(pdMS_TO_TICKS(TOPIC_SWITCH_DELAY_MS * 2));  // Délai plus long après le dernier endpoint
 
-    // Create and initialize executor (2 callbacks)
-    RCCHECK(rclc_executor_init(&ctx->executor, &ctx->support.context, 2, &allocator));
+    // Important: executor avec capacité explicite de 3 au lieu de 2
+    // Exemple ping_pong utilise explicitement la capacité
+    ESP_LOGI(TAG, "Initializing executor with capacity 3");
+    RCCHECK(rclc_executor_init(&ctx->executor, &ctx->support.context, 3, &allocator));
     
+    ESP_LOGI(TAG, "Adding subscriptions to executor");
     RCCHECK(rclc_executor_add_subscription(
         &ctx->executor, &ctx->command_sub, &ctx->command_msg,
         &command_callback, ON_NEW_DATA));
+    vTaskDelay(pdMS_TO_TICKS(500));  // Petit délai entre chaque ajout
         
     RCCHECK(rclc_executor_add_subscription(
         &ctx->executor, &ctx->pose_sub, &ctx->pose_msg,
         &pose_callback, ON_NEW_DATA));
 
+    // Donner du temps au système pour initialiser complètement
+    vTaskDelay(pdMS_TO_TICKS(1000));
     ESP_LOGI(TAG, "micro-ROS initialization complete");
+    
+    // Exécuter un premier cycle de l'executor pour s'assurer qu'il fonctionne
+    rclc_executor_spin_some(&ctx->executor, RCL_MS_TO_NS(10));
+    vTaskDelay(pdMS_TO_TICKS(100));
+    ESP_LOGI(TAG, "First executor cycle completed");
+    
     return true;
 }
 
@@ -650,9 +703,44 @@ static void micro_ros_task(void *arg) {
         ESP_LOGI(TAG, "Sent test message to robot_status topic");
     }
 
+    // Variables for checking connection health
+    uint32_t last_connection_check = 0;
+    const uint32_t connection_check_interval_ms = 10000;  // Check every 10 seconds
+    bool was_connected = true;  // Assume initially connected
+
     // Main loop
     while (1) {
-        rclc_executor_spin_some(&g_microros_ctx.executor, RCL_MS_TO_NS(100));
+        // Periodically check connection to the agent
+        uint32_t now = xTaskGetTickCount() * portTICK_PERIOD_MS;
+        if (now - last_connection_check > connection_check_interval_ms) {
+            last_connection_check = now;
+            
+            #ifdef CONFIG_MICRO_ROS_ESP_XRCE_DDS_MIDDLEWARE
+            // Test ping without generating error messages for periodic monitoring
+            bool is_connected = rmw_uros_ping_agent(PING_TIMEOUT_MS, 1);
+            
+            if (!is_connected && was_connected) {
+                // Instead of displaying an error message, we just log informational status
+                ESP_LOGI(TAG, "Testing connection to micro-ROS agent: waiting for response");
+                
+                // Force a reconnection with more attempts in case of a real problem
+                is_connected = rmw_uros_ping_agent(PING_TIMEOUT_MS * 2, 3);
+                
+                if (!is_connected) {
+                    ESP_LOGW(TAG, "micro-ROS agent not responding, check network connection");
+                }
+            } else if (is_connected && !was_connected) {
+                // Successful reconnection
+                ESP_LOGI(TAG, "Communication with micro-ROS agent established");
+                publish_status(&g_microros_ctx, "Communication with micro-ROS agent established");
+            }
+            
+            was_connected = is_connected;
+            #endif
+        }
+        
+        // Use a higher frequency for the executor (10ms instead of 100ms)
+        rclc_executor_spin_some(&g_microros_ctx.executor, RCL_MS_TO_NS(10));
         
         // Periodic robot update (for gaits)
         robot_update();
@@ -660,7 +748,7 @@ static void micro_ros_task(void *arg) {
         // Check battery status periodically
         battery_status_callback();
         
-        usleep(10000);  // Short delay to reduce CPU usage
+        usleep(5000);  // Reduced delay to make system more responsive
     }
 
     // Cleanup (never reached)
