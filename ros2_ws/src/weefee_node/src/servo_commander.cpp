@@ -22,6 +22,7 @@
  * SOFTWARE.
  */
 
+ 
 #include "rclcpp/rclcpp.hpp"
 #include "std_msgs/msg/int32_multi_array.hpp"
 #include "std_msgs/msg/string.hpp"
@@ -54,22 +55,18 @@ public:
         servo_pub_ = this->create_publisher<std_msgs::msg::Int32MultiArray>("servo_angles", 10);
         command_pub_ = this->create_publisher<std_msgs::msg::String>("robot_command", 10);
         
-        // Subscribers with custom QoS settings
         // Create a custom QoS profile with best effort reliability for micro-ROS compatibility
         auto qos = rclcpp::QoS(10).best_effort();
         
+        // Subscribers
         status_sub_ = this->create_subscription<std_msgs::msg::String>(
             "robot_status", qos, std::bind(&QuadrupedController::status_callback, this, std::placeholders::_1));
         
-        // Command subscriber - listen for manual commands
         command_input_sub_ = this->create_subscription<std_msgs::msg::String>(
             "command_input", 10, std::bind(&QuadrupedController::command_input_callback, this, std::placeholders::_1));
         
-        // Initialize all servos to neutral position once at startup
+        // Initialize servos to neutral position at startup
         send_servo_positions({90, 90, 90, 90, 90, 90, 90, 90, 90, 90, 90, 90});
-        
-        // Note: Auto-demo timer is disabled to prevent automatic movements
-        // ui_timer_ = this->create_wall_timer(1000ms, std::bind(&QuadrupedController::ui_update, this));
         
         RCLCPP_INFO(this->get_logger(), "Quadruped controller initialized in manual mode.");
         RCLCPP_INFO(this->get_logger(), "Send commands via the 'command_input' topic.");
@@ -85,7 +82,6 @@ private:
     void status_callback(const std_msgs::msg::String::SharedPtr msg)
     {
         RCLCPP_INFO(this->get_logger(), "Robot status: %s", msg->data.c_str());
-        // Update internal state based on status
         robot_status_ = msg->data;
     }
     
@@ -106,6 +102,10 @@ private:
         else if (command == "sit") {
             sit_command();
             current_state_ = "SITTING";
+        }
+        else if (command == "calibrate") {
+            calibration_command();
+            current_state_ = "CALIBRATING";
         }
         else if (command == "stop") {
             stop_command();
@@ -164,25 +164,71 @@ private:
     }
     
     /**
+     * @brief Sends a command to move the robot to calibration position
+     * 
+     * Sets all servos to the assembly and calibration position (90,45,90).
+     * This is the reference position used for all servo adjustments.
+     */
+    void calibration_command()
+    {
+        // Assembly and calibration position (90,45,90 pattern for all legs)
+        auto servo_msg = std_msgs::msg::String();
+        servo_msg.data = "servo:90,45,90,90,45,90,90,45,90,90,45,90";
+        command_pub_->publish(servo_msg);
+        RCLCPP_INFO(this->get_logger(), "Command sent: Calibration position");
+        
+        // High-level command for logging
+        auto msg = std_msgs::msg::String();
+        msg.data = "calibrate";
+        command_pub_->publish(msg);
+        RCLCPP_INFO(this->get_logger(), "Command sent: Calibration (high-level command)");
+    }
+    
+    /**
      * @brief Sends a command to the robot to stand up
+     * 
+     * Sets the robot in a standing position with legs properly positioned
+     * for stability and balance.
      */
     void stand_command()
     {
+        // Right side: femurs at 45°, tibias at 135° (adjusted from calibration position)
+        // Left side: femurs at 45°, tibias at 45° (adjusted from calibration position)
+        // Both configurations result in tibias perpendicular to the ground
+        auto servo_msg = std_msgs::msg::String();
+        servo_msg.data = "servo:90,45,135,90,45,45,90,45,135,90,45,45";
+        command_pub_->publish(servo_msg);
+        RCLCPP_INFO(this->get_logger(), "Command sent: Stand position");
+        
+        // High-level command for logging
         auto msg = std_msgs::msg::String();
         msg.data = "stand";
         command_pub_->publish(msg);
-        RCLCPP_INFO(this->get_logger(), "Command sent: Stand");
+        RCLCPP_INFO(this->get_logger(), "Command sent: Stand (high-level command)");
     }
     
     /**
      * @brief Sends a command to the robot to sit down
+     * 
+     * Sets the robot in a sitting position with front legs in standing
+     * position and rear legs folded under the body.
      */
     void sit_command()
     {
+        // Front legs: same as stand position
+        // Rear right femur: raised to 15° (up from calibration position)
+        // Rear left femur: set to 75° (adjusted for opposite servo orientation)
+        // Rear tibias: at 135° (parallel to the ground)
+        auto servo_msg = std_msgs::msg::String();
+        servo_msg.data = "servo:90,45,135,90,45,45,90,15,135,90,75,135";
+        command_pub_->publish(servo_msg);
+        RCLCPP_INFO(this->get_logger(), "Command sent: Sit position");
+        
+        // High-level command for logging
         auto msg = std_msgs::msg::String();
         msg.data = "sit";
         command_pub_->publish(msg);
-        RCLCPP_INFO(this->get_logger(), "Command sent: Sit");
+        RCLCPP_INFO(this->get_logger(), "Command sent: Sit (high-level command)");
     }
     
     /**
@@ -287,10 +333,10 @@ private:
             return;
         }
         
-        // Try to send via Int32MultiArray (for compatibility with standard ROS2 systems)
+        // Send via Int32MultiArray (for compatibility with standard ROS2 systems)
         auto servo_msg = std_msgs::msg::Int32MultiArray();
         
-        // Configure message layout - essential for compatibility with micro-ROS
+        // Configure message layout for compatibility with micro-ROS
         servo_msg.layout.dim.push_back(std_msgs::msg::MultiArrayDimension());
         servo_msg.layout.dim[0].label = "servos";
         servo_msg.layout.dim[0].size = positions.size();
@@ -303,7 +349,7 @@ private:
         // Publish the message
         servo_pub_->publish(servo_msg);
         
-        // ALSO send via robot_command to ensure compatibility with micro-ROS on ESP32
+        // Also send via robot_command for ESP32 compatibility
         send_servo_positions_via_command(positions);
         
         RCLCPP_DEBUG(this->get_logger(), "Servo positions published via both methods");
