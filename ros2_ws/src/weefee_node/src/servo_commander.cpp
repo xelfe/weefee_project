@@ -30,6 +30,7 @@
 #include <iostream>
 #include <vector>
 #include <string>
+#include <sstream>
 
 using namespace std::chrono_literals;
 
@@ -53,23 +54,28 @@ public:
         servo_pub_ = this->create_publisher<std_msgs::msg::Int32MultiArray>("servo_angles", 10);
         command_pub_ = this->create_publisher<std_msgs::msg::String>("robot_command", 10);
         
-        // Subscribers
+        // Subscribers with custom QoS settings
+        // Create a custom QoS profile with best effort reliability for micro-ROS compatibility
+        auto qos = rclcpp::QoS(10).best_effort();
+        
         status_sub_ = this->create_subscription<std_msgs::msg::String>(
-            "robot_status", 10, std::bind(&QuadrupedController::status_callback, this, std::placeholders::_1));
+            "robot_status", qos, std::bind(&QuadrupedController::status_callback, this, std::placeholders::_1));
         
-        // Service clients can be added later if needed
+        // Command subscriber - listen for manual commands
+        command_input_sub_ = this->create_subscription<std_msgs::msg::String>(
+            "command_input", 10, std::bind(&QuadrupedController::command_input_callback, this, std::placeholders::_1));
         
-        // Initialize all servos to neutral position - use the new function
+        // Initialize all servos to neutral position once at startup
         send_servo_positions({90, 90, 90, 90, 90, 90, 90, 90, 90, 90, 90, 90});
         
-        // Create timers for UI updates (simulating user commands for demonstration)
-        ui_timer_ = this->create_wall_timer(1000ms, std::bind(&QuadrupedController::ui_update, this));
+        // Note: Auto-demo timer is disabled to prevent automatic movements
+        // ui_timer_ = this->create_wall_timer(1000ms, std::bind(&QuadrupedController::ui_update, this));
         
-        RCLCPP_INFO(this->get_logger(), "Quadruped controller initialized.");
+        RCLCPP_INFO(this->get_logger(), "Quadruped controller initialized in manual mode.");
+        RCLCPP_INFO(this->get_logger(), "Send commands via the 'command_input' topic.");
         
         // Initialize state
-        current_state_ = "INIT";
-        demo_counter_ = 0;
+        current_state_ = "IDLE";
     }
 
 private:
@@ -81,6 +87,80 @@ private:
         RCLCPP_INFO(this->get_logger(), "Robot status: %s", msg->data.c_str());
         // Update internal state based on status
         robot_status_ = msg->data;
+    }
+    
+    /**
+     * @brief Callback for manual command input
+     * Processes commands received via the command_input topic
+     */
+    void command_input_callback(const std_msgs::msg::String::SharedPtr msg)
+    {
+        const std::string& command = msg->data;
+        RCLCPP_INFO(this->get_logger(), "Manual command received: %s", command.c_str());
+        
+        // Parse and process the command
+        if (command == "stand") {
+            stand_command();
+            current_state_ = "STANDING";
+        }
+        else if (command == "sit") {
+            sit_command();
+            current_state_ = "SITTING";
+        }
+        else if (command == "stop") {
+            stop_command();
+            current_state_ = "STOPPED";
+        }
+        else if (command == "trot") {
+            trot_command();
+            current_state_ = "TROTTING";
+        }
+        else if (command.find("walk") == 0) {
+            float speed = 1.0f;
+            if (command.length() > 5) { // If there's something after "walk "
+                try {
+                    speed = std::stof(command.substr(5));  // Extract speed value
+                } catch (const std::exception& e) {
+                    RCLCPP_WARN(this->get_logger(), "Invalid walk speed format, using default speed 1.0");
+                }
+            }
+            walk_command(speed);
+            current_state_ = "WALKING";
+        }
+        else if (command.find("position") == 0) {
+            std::istringstream iss(command);
+            std::string cmd;
+            float x, y, z;
+            iss >> cmd >> x >> y >> z;
+            
+            if (iss.fail()) {
+                RCLCPP_ERROR(this->get_logger(), "Invalid position command format. Use: position x y z");
+            } else {
+                set_body_position(x, y, z);
+            }
+        }
+        else if (command.find("orientation") == 0) {
+            std::istringstream iss(command);
+            std::string cmd;
+            float roll, pitch, yaw;
+            iss >> cmd >> roll >> pitch >> yaw;
+            
+            if (iss.fail()) {
+                RCLCPP_ERROR(this->get_logger(), "Invalid orientation command format. Use: orientation roll pitch yaw");
+            } else {
+                set_body_orientation(roll, pitch, yaw);
+            }
+        }
+        else if (command.find("servo:") == 0) {
+            // Direct servo command - forward as is
+            auto servo_msg = std_msgs::msg::String();
+            servo_msg.data = command;
+            command_pub_->publish(servo_msg);
+            RCLCPP_INFO(this->get_logger(), "Forwarded servo command to robot_command topic");
+        }
+        else {
+            RCLCPP_WARN(this->get_logger(), "Unknown command: %s", command.c_str());
+        }
     }
     
     /**
@@ -229,82 +309,13 @@ private:
         RCLCPP_DEBUG(this->get_logger(), "Servo positions published via both methods");
     }
     
-    /**
-     * @brief UI update timer callback - demonstrates different robot commands
-     * 
-     * This function cycles through various robot commands to showcase the 
-     * capabilities of the quadruped robot.
-     */
-    void ui_update()
-    {
-        // Simple demo sequence
-        switch (demo_counter_)
-        {
-            case 0:
-                // Start by standing up
-                current_state_ = "STANDING";
-                stand_command();
-                break;
-            case 5:
-                // Adjust body position slightly forward
-                set_body_position(20.0, 0.0, 0.0);
-                break;
-            case 7:
-                // Adjust body orientation (pitch down slightly)
-                set_body_orientation(0.0, 10.0, 0.0);
-                break;
-            case 9:
-                // Reset position and orientation
-                set_body_position(0.0, 0.0, 0.0);
-                set_body_orientation(0.0, 0.0, 0.0);
-                break;
-            case 11:
-                // Start walking slowly
-                current_state_ = "WALKING";
-                walk_command(0.5);
-                break;
-            case 15:
-                // Increase walking speed
-                walk_command(1.0);
-                break;
-            case 19:
-                // Switch to trot gait
-                current_state_ = "TROTTING";
-                trot_command();
-                break;
-            case 23:
-                // Stop movement
-                current_state_ = "STOPPED";
-                stop_command();
-                break;
-            case 25:
-                // Sit down
-                current_state_ = "SITTING";
-                sit_command();
-                break;
-            case 30:
-                // Reset counter to restart demo
-                demo_counter_ = -1;
-                break;
-        }
-        
-        demo_counter_++;
-        
-        // Publish servo positions regularly on each update cycle
-        std::vector<int> servo_positions = {90, 90, 90, 90, 90, 90, 90, 90, 90, 90, 90, 90};
-        send_servo_positions(servo_positions);
-        
-        // Log the current state
-        RCLCPP_INFO(this->get_logger(), "Robot state: %s (Demo step: %d)", 
-                   current_state_.c_str(), demo_counter_);
-    }
-
     // Publishers
     rclcpp::Publisher<std_msgs::msg::Int32MultiArray>::SharedPtr servo_pub_;
     rclcpp::Publisher<std_msgs::msg::String>::SharedPtr command_pub_;
     
     // Subscribers
     rclcpp::Subscription<std_msgs::msg::String>::SharedPtr status_sub_;
+    rclcpp::Subscription<std_msgs::msg::String>::SharedPtr command_input_sub_;
     
     // Timers
     rclcpp::TimerBase::SharedPtr ui_timer_;
