@@ -96,7 +96,6 @@ ros2 topic pub --once /robot_command std_msgs/msg/String "{data: 'stop'}"
 
 - **espidf/** – ESP32 firmware with micro-ROS integration
 - **ros2_ws/** – ROS2 workspace with control nodes
-- **wiki/** – Project documentation
 
 ## 📄 License
 
