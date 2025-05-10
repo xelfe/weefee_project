@@ -59,10 +59,8 @@ public:
         
         // Service clients can be added later if needed
         
-        // Initialize all servos to neutral position
-        auto servo_msg = std_msgs::msg::Int32MultiArray();
-        servo_msg.data = {90, 90, 90, 90, 90, 90, 90, 90, 90, 90, 90, 90};  // 12 servos at neutral position
-        servo_pub_->publish(servo_msg);
+        // Initialize all servos to neutral position - use the new function
+        send_servo_positions({90, 90, 90, 90, 90, 90, 90, 90, 90, 90, 90, 90});
         
         // Create timers for UI updates (simulating user commands for demonstration)
         ui_timer_ = this->create_wall_timer(1000ms, std::bind(&QuadrupedController::ui_update, this));
@@ -173,6 +171,65 @@ private:
     }
     
     /**
+     * @brief Sends servo positions to the robot via robot_command topic
+     * @param positions Vector of servo positions
+     */
+    void send_servo_positions_via_command(const std::vector<int>& positions)
+    {
+        if (positions.size() != 12) {
+            RCLCPP_ERROR(this->get_logger(), "Expected 12 servo positions, got %ld", positions.size());
+            return;
+        }
+        
+        // Format the servo command as: "servo:angle1,angle2,angle3,..."
+        std::string cmd = "servo:";
+        for (size_t i = 0; i < positions.size(); i++) {
+            cmd += std::to_string(positions[i]);
+            if (i < positions.size() - 1) {
+                cmd += ",";
+            }
+        }
+        
+        auto msg = std_msgs::msg::String();
+        msg.data = cmd;
+        command_pub_->publish(msg);
+        RCLCPP_DEBUG(this->get_logger(), "Servo positions sent via command: %s", cmd.c_str());
+    }
+    
+    /**
+     * @brief Sends servo positions to the robot
+     * @param positions Vector of servo positions
+     */
+    void send_servo_positions(const std::vector<int>& positions)
+    {
+        if (positions.size() != 12) {
+            RCLCPP_ERROR(this->get_logger(), "Expected 12 servo positions, got %ld", positions.size());
+            return;
+        }
+        
+        // Try to send via Int32MultiArray (for compatibility with standard ROS2 systems)
+        auto servo_msg = std_msgs::msg::Int32MultiArray();
+        
+        // Configure message layout - essential for compatibility with micro-ROS
+        servo_msg.layout.dim.push_back(std_msgs::msg::MultiArrayDimension());
+        servo_msg.layout.dim[0].label = "servos";
+        servo_msg.layout.dim[0].size = positions.size();
+        servo_msg.layout.dim[0].stride = positions.size();
+        servo_msg.layout.data_offset = 0;
+        
+        // Copy data
+        servo_msg.data = positions;
+        
+        // Publish the message
+        servo_pub_->publish(servo_msg);
+        
+        // ALSO send via robot_command to ensure compatibility with micro-ROS on ESP32
+        send_servo_positions_via_command(positions);
+        
+        RCLCPP_DEBUG(this->get_logger(), "Servo positions published via both methods");
+    }
+    
+    /**
      * @brief UI update timer callback - demonstrates different robot commands
      * 
      * This function cycles through various robot commands to showcase the 
@@ -232,6 +289,10 @@ private:
         }
         
         demo_counter_++;
+        
+        // Publish servo positions regularly on each update cycle
+        std::vector<int> servo_positions = {90, 90, 90, 90, 90, 90, 90, 90, 90, 90, 90, 90};
+        send_servo_positions(servo_positions);
         
         // Log the current state
         RCLCPP_INFO(this->get_logger(), "Robot state: %s (Demo step: %d)", 

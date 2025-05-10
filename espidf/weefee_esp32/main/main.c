@@ -15,7 +15,8 @@
  * copies or substantial portions of the Software.
  *
  * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
- * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+ * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES
+ * OF MERCHANTABILITY,
  * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
  * AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
  * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
@@ -69,8 +70,8 @@ static const char *TAG = "weefee_main";
 static bool g_robot_calibrated = false;
 
 // Define error checking macros with less verbose output
-#define RCCHECK(fn) { rcl_ret_t rc = fn; if((rc != RCL_RET_OK)) { ESP_LOGE(TAG, "RC error %ld at %d", (long)rc, __LINE__); vTaskDelete(NULL); }}
-#define RCSOFTCHECK(fn) { rcl_ret_t rc = fn; if((rc != RCL_RET_OK)) { ESP_LOGW(TAG, "RC warning %ld at %d", (long)rc, __LINE__); }}
+#define RCCHECK(fn) { rcl_ret_t rc = fn; if((rc != RCL_RET_OK)) { ESP_LOGE(TAG, "RC error %d at %d", (int)rc, __LINE__); vTaskDelete(NULL); }}
+#define RCSOFTCHECK(fn) { rcl_ret_t rc = fn; if((rc != RCL_RET_OK)) { ESP_LOGW(TAG, "RC warning %d at %d", (int)rc, __LINE__); }}
 
 // Configuration constants
 #define MAX_INIT_ATTEMPTS 5
@@ -101,14 +102,12 @@ typedef struct {
     rcl_node_t node;
     rcl_subscription_t pose_sub;
     rcl_subscription_t command_sub;
-    rcl_subscription_t servo_angles_sub;
     rcl_publisher_t status_pub;
     
     // Messages
     geometry_msgs__msg__Pose pose_msg;
     std_msgs__msg__String command_msg;
     std_msgs__msg__String status_msg;
-    std_msgs__msg__Int32MultiArray servo_angles_msg;
     
     // Executor
     rclc_executor_t executor;
@@ -324,24 +323,6 @@ static void init_messages(microros_context_t *ctx) {
 }
 
 /**
- * @brief Initialize message structure for servo_angles
- * @param ctx Pointer to microros_context_t structure
- */
-static void init_servo_angles_msg(microros_context_t *ctx) {
-    // Initialize the servo_angles message
-    ctx->servo_angles_msg.data.capacity = SERVO_COUNT;
-    ctx->servo_angles_msg.data.size = SERVO_COUNT;
-    ctx->servo_angles_msg.data.data = (int32_t*) malloc(SERVO_COUNT * sizeof(int32_t));
-    
-    // Initialize with default values (90 degrees)
-    for (int i = 0; i < SERVO_COUNT; i++) {
-        ctx->servo_angles_msg.data.data[i] = 90;
-    }
-    
-    ESP_LOGI(TAG, "Servo angles message initialized with capacity for %d servos", SERVO_COUNT);
-}
-
-/**
  * @brief Cleans up message buffers
  * @param ctx Pointer to microros_context_t structure
  */
@@ -450,11 +431,29 @@ static void publish_status(microros_context_t *ctx, const char *status) {
     // Log that we're publishing a message
     ESP_LOGI(TAG, "Publishing status to robot_status: %s", status);
     
+    // Prepare the message
     snprintf(ctx->status_msg.data.data, ctx->status_msg.data.capacity, "%s", status);
-    ctx->status_msg.data.size = strlen(ctx->status_msg.data.data) + 1;
-    rcl_ret_t rc = rcl_publish(&ctx->status_pub, &ctx->status_msg, NULL);
-    if (rc != RCL_RET_OK) {
-        ESP_LOGW(TAG, "Failed to publish status: %ld", (long)rc);
+    ctx->status_msg.data.size = strlen(ctx->status_msg.data.data);  // Don't include null terminator in size
+    
+    // Attempt publication with retry
+    rcl_ret_t rc;
+    int retry_count = 0;
+    const int max_retries = 3;
+    
+    do {
+        rc = rcl_publish(&ctx->status_pub, &ctx->status_msg, NULL);
+        if (rc != RCL_RET_OK) {
+            ESP_LOGW(TAG, "Failed to publish status (attempt %d/%d): %ld", 
+                    retry_count + 1, max_retries, (long)rc);
+            vTaskDelay(pdMS_TO_TICKS(10));  // Small delay before retrying
+            retry_count++;
+        }
+    } while (rc != RCL_RET_OK && retry_count < max_retries);
+    
+    if (rc == RCL_RET_OK) {
+        ESP_LOGI(TAG, "Status message successfully published");
+    } else {
+        ESP_LOGE(TAG, "Failed to publish status after %d attempts", max_retries);
     }
 }
 
@@ -741,34 +740,6 @@ static void command_callback(const void *msgin) {
 }
 
 /**
- * @brief Callback for servo angles messages
- * @param msgin Pointer to the received message
- */
-static void servo_angles_callback(const void *msgin) {
-    const std_msgs__msg__Int32MultiArray *msg = (const std_msgs__msg__Int32MultiArray *)msgin;
-    
-    // Check if we received the correct number of servo values
-    if (msg->data.size != SERVO_COUNT) {
-        ESP_LOGW(TAG, "Error: received %d servo values, expected %d", 
-                 (int)msg->data.size, SERVO_COUNT);
-        return;
-    }
-    
-    // Convert to integer array for servo controller
-    int servo_positions[SERVO_COUNT];
-    for (int i = 0; i < SERVO_COUNT; i++) {
-        servo_positions[i] = (int)msg->data.data[i];
-    }
-    
-    // Apply servo positions directly
-    set_servo_values(servo_positions);
-    apply_servo_positions(servo_positions);
-    
-    // Log at debug level to avoid flooding the logs
-    LOG_DEBUG(TAG, "Applied servo positions from ROS");
-}
-
-/**
  * @brief Initialize micro-ROS communication
  * @param ctx Pointer to microros_context_t structure to initialize
  * @return true if initialization successful, false otherwise
@@ -828,7 +799,6 @@ static bool init_microros(microros_context_t *ctx) {
     // Initialize messages
     ESP_LOGI(TAG, "Initializing message structures");
     init_messages(ctx);
-    init_servo_angles_msg(ctx);
     vTaskDelay(pdMS_TO_TICKS(TOPIC_SWITCH_DELAY_MS));
     
     // Initialize subscriptions and publishers with longer delays between initializations
@@ -850,15 +820,6 @@ static bool init_microros(microros_context_t *ctx) {
     }
     vTaskDelay(pdMS_TO_TICKS(TOPIC_SWITCH_DELAY_MS * 2));  // Longer delay
     
-    if (!init_subscription(
-            &ctx->servo_angles_sub,
-            &ctx->node,
-            ROSIDL_GET_MSG_TYPE_SUPPORT(std_msgs, msg, Int32MultiArray),
-            "servo_angles")) {
-        return false;
-    }
-    vTaskDelay(pdMS_TO_TICKS(TOPIC_SWITCH_DELAY_MS * 2));  // Longer delay
-    
     if (!init_publisher(
             &ctx->status_pub,
             &ctx->node,
@@ -868,10 +829,9 @@ static bool init_microros(microros_context_t *ctx) {
     }
     vTaskDelay(pdMS_TO_TICKS(TOPIC_SWITCH_DELAY_MS * 2));  // Longer delay after the last endpoint
 
-    // Important: executor with explicit capacity of 4 instead of 3
-    // to handle the new servo_angles subscription
-    ESP_LOGI(TAG, "Initializing executor with capacity 4");
-    RCCHECK(rclc_executor_init(&ctx->executor, &ctx->support.context, 4, &allocator));
+    // Important: executor with explicit capacity of 3
+    ESP_LOGI(TAG, "Initializing executor with capacity 3");
+    RCCHECK(rclc_executor_init(&ctx->executor, &ctx->support.context, 3, &allocator));
     
     ESP_LOGI(TAG, "Adding subscriptions to executor");
     RCCHECK(rclc_executor_add_subscription(
@@ -882,11 +842,6 @@ static bool init_microros(microros_context_t *ctx) {
     RCCHECK(rclc_executor_add_subscription(
         &ctx->executor, &ctx->pose_sub, &ctx->pose_msg,
         &pose_callback, ON_NEW_DATA));
-    vTaskDelay(pdMS_TO_TICKS(500));  // Small delay between each addition
-
-    RCCHECK(rclc_executor_add_subscription(
-        &ctx->executor, &ctx->servo_angles_sub, &ctx->servo_angles_msg,
-        &servo_angles_callback, ON_NEW_DATA));
 
     // Give the system time to fully initialize
     vTaskDelay(pdMS_TO_TICKS(1000));
@@ -907,7 +862,6 @@ static bool init_microros(microros_context_t *ctx) {
 static void cleanup_microros(microros_context_t *ctx) {
     RCCHECK(rcl_subscription_fini(&ctx->pose_sub, &ctx->node));
     RCCHECK(rcl_subscription_fini(&ctx->command_sub, &ctx->node));
-    RCCHECK(rcl_subscription_fini(&ctx->servo_angles_sub, &ctx->node));
     RCCHECK(rcl_publisher_fini(&ctx->status_pub, &ctx->node));
     RCCHECK(rcl_node_fini(&ctx->node));
     
@@ -956,7 +910,7 @@ static void micro_ros_task(void *arg) {
     // Variables for adaptive sleep duration to avoid CPU saturation
     uint32_t sleep_duration_us = 5000;  // Start with 5ms
     const uint32_t MIN_SLEEP_DURATION_US = 5000;    // 5ms minimum for responsive operation
-    const uint32_t MAX_SLEEP_DURATION_US = 100000;  // 100ms maximum during disconnection
+    const uint32_t MAX_SLEEP_DURATION_US = 50000;   // 50ms maximum during disconnection
     
     // Main loop
     while (1) {
