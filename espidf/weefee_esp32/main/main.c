@@ -721,6 +721,11 @@ static void micro_ros_task(void *arg) {
     const uint32_t connection_check_interval_ms = 10000;  // Check every 10 seconds
     bool was_connected = true;  // Assume initially connected
 
+    // Variables for adaptive sleep duration to avoid CPU saturation
+    uint32_t sleep_duration_us = 5000;  // Start with 5ms
+    const uint32_t MIN_SLEEP_DURATION_US = 5000;    // 5ms minimum for responsive operation
+    const uint32_t MAX_SLEEP_DURATION_US = 100000;  // 100ms maximum during disconnection
+    
     // Main loop
     while (1) {
         // Periodically check connection to the agent
@@ -741,11 +746,23 @@ static void micro_ros_task(void *arg) {
                 
                 if (!is_connected) {
                     ESP_LOGW(TAG, "micro-ROS agent not responding, check network connection");
+                    
+                    // Implement exponential backoff to reduce CPU usage during disconnection
+                    // Double the sleep duration, up to the maximum
+                    sleep_duration_us = sleep_duration_us * 2;
+                    if (sleep_duration_us > MAX_SLEEP_DURATION_US) {
+                        sleep_duration_us = MAX_SLEEP_DURATION_US;
+                    }
+                    ESP_LOGW(TAG, "Increasing task sleep to %lu us to reduce CPU load", sleep_duration_us);
                 }
             } else if (is_connected && !was_connected) {
                 // Successful reconnection
                 ESP_LOGI(TAG, "Communication with micro-ROS agent established");
                 publish_status(&g_microros_ctx, "Communication with micro-ROS agent established");
+                
+                // Reset sleep duration back to minimum for responsive operation
+                sleep_duration_us = MIN_SLEEP_DURATION_US;
+                ESP_LOGI(TAG, "Resetting task sleep to %lu us for responsive operation", sleep_duration_us);
             }
             
             was_connected = is_connected;
@@ -761,7 +778,8 @@ static void micro_ros_task(void *arg) {
         // Check battery status periodically
         battery_status_callback();
         
-        usleep(5000);  // Reduced delay to make system more responsive
+        // Use adaptive sleep duration based on connection state
+        usleep(sleep_duration_us);
     }
 
     // Cleanup (never reached)
@@ -797,12 +815,11 @@ void app_main(void) {
         battery_monitor_start_task(CONFIG_BAT_MONITOR_UPDATE_INTERVAL);
         
         // DO NOT try to publish status messages here - ROS isn't initialized yet
-        // This will be done in the micro_ros_task after initialization
     } else {
-        ESP_LOGW(TAG, "Failed to initialize battery monitor: %s", esp_err_to_name(ret));
+        ESP_LOGE(TAG, "Failed to initialize battery monitor: %s", esp_err_to_name(ret));
     }
 #endif
-    
+
     // Initialize network
 #if defined(CONFIG_MICRO_ROS_ESP_NETIF_WLAN) || defined(CONFIG_MICRO_ROS_ESP_NETIF_ENET)
     esp_err_t net_ret = uros_network_interface_initialize();
@@ -819,7 +836,24 @@ void app_main(void) {
 
     vTaskDelay(pdMS_TO_TICKS(1000));
     
-    // Start micro-ROS task
-    xTaskCreate(micro_ros_task, "uros_task", CONFIG_MICRO_ROS_APP_STACK * 2,
-                NULL, tskIDLE_PRIORITY + 1, NULL);
+    // Start micro-ROS task on core 1
+    // The default FreeRTOS task creation doesn't specify a core, so tasks
+    // can run on either core. By using xTaskCreatePinnedToCore, we ensure
+    // the micro-ROS task runs on a specific core (core 1), leaving core 0
+    // available for system tasks and WiFi/BT tasks
+    BaseType_t task_created = xTaskCreatePinnedToCore(
+        micro_ros_task,          // Function that implements the task
+        "uros_task",             // Name for the task
+        CONFIG_MICRO_ROS_APP_STACK * 2,  // Stack size
+        NULL,                    // Parameters
+        tskIDLE_PRIORITY + 1,    // Priority
+        NULL,                    // Task handle
+        1                        // Core ID (1 = second core)
+    );
+    
+    if (task_created != pdPASS) {
+        ESP_LOGE(TAG, "Failed to create micro-ROS task");
+    } else {
+        ESP_LOGI(TAG, "micro-ROS task created on core 1");
+    }
 }

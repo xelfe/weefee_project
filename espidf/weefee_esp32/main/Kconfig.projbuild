@@ -246,4 +246,14 @@ menu "Weefee Configuration"
                 This setting will be removed in future versions.
     endmenu
 
+    menu "System Monitoring Test"
+        config SYSTEM_MONITOR_TEST_ENABLED
+            bool "Enable System Monitoring Test"
+            default n
+            help
+                Enable this option to run a system monitoring test at startup.
+                This will test memory and CPU monitoring with simulated loads.
+                Disable for normal operation.
+    endmenu
+
 endmenu
