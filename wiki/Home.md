@@ -12,21 +12,18 @@ Weefee is a complete quadruped robot control system with advanced features inclu
 
 * [Home](Home.md) - This page
 * [Getting Started](Getting-Started.md) - Installation and initial setup
-* [Hardware Setup](Hardware-Setup.md) - Hardware components and assembly
 * [ESP32 Firmware](ESP32-Firmware.md) - Documentation for the ESP-IDF based firmware
 * [ROS2 Control](ROS2-Control.md) - Documentation for the ROS2 control nodes
 * [Kinematics](Kinematics.md) - Explanation of the inverse/forward kinematics implementation
 * [Gait Patterns](Gait-Patterns.md) - Description of implemented walking gaits
 * [Command Reference](Command-Reference.md) - Complete list of all robot commands
-* [Visualization](Visualization.md) - Instructions for visualizing the robot in RViz
-* [Troubleshooting](Troubleshooting.md) - Common issues and solutions
-* [Contributing](Contributing.md) - Guidelines for contributing to the project
+* [Battery Monitoring](Battery-Monitoring.md) - Documentation for the battery monitoring system
 
 ## Quick Links
 
-* [Repository](https://github.com/yourusername/weefee_project)
-* [Issue Tracker](https://github.com/yourusername/weefee_project/issues)
-* [Latest Release](https://github.com/yourusername/weefee_project/releases/latest)
+* [Repository](https://github.com/xelfe/weefee_project)
+* [Issue Tracker](https://github.com/xelfe/weefee_project/issues)
+* [Latest Release](https://github.com/xelfe/weefee_project/releases/latest)
 
 ## Key Features
 
@@ -35,6 +32,7 @@ Weefee is a complete quadruped robot control system with advanced features inclu
 * **Inverse & Forward Kinematics** - Precise control of leg positions
 * **Multiple Gait Patterns** - Walk, trot, and pace movements
 * **Position & Orientation Control** - Adjust the robot's stance in 3D space
+* **Battery Monitoring** - Real-time battery level monitoring with low-battery safety features
 * **ROS2 Visualization** - 3D visualization in RViz
 
 ## System Architecture
@@ -54,4 +52,8 @@ Weefee is a complete quadruped robot control system with advanced features inclu
 
 ## License
 
-This project is licensed under the MIT License - see the [LICENSE](https://github.com/yourusername/weefee_project/blob/main/LICENSE) file for details.
+This project is licensed under the MIT License - see the [LICENSE](https://github.com/xelfe/weefee_project/blob/main/LICENSE) file for details.
+
+## Last Updated
+
+May 9, 2025

@@ -1,194 +1,107 @@
 # 🐾 Weefee Project
 
-This repository contains two main parts:
+A complete quadruped robot control system built on ESP32 (using ESP-IDF + micro-ROS) and ROS 2, featuring inverse kinematics, multiple gait patterns, and ROS2 visualization.
 
-1. **espidf/** – Code for ESP32 using ESP-IDF + micro-ROS
-2. **ros2_ws/** – Standard ROS 2 workspace with C++ nodes to control the robot
+![Quadruped Robot](https://i.imgur.com/example-placeholder.jpg)
 
-## 🤖 Features
+## ✨ Key Features
 
-### Quadruped Robot Control
-The project now includes a complete quadruped robot control system with:
+- **Inverse & Forward Kinematics** - Precise leg position control
+- **Multiple Gait Patterns** - Stand, walk, trot, and pace
+- **Body Position & Orientation Control** - Full 6DOF body manipulation
+- **Battery Monitoring System** - Real-time battery tracking with safety features
+- **ROS2 Visualization** - 3D visualization in RViz
 
-- **Inverse & Forward Kinematics** - Calculate joint angles from foot positions and vice versa
-- **Multiple Gait Patterns** - Stand, walk, trot, and pace movements
-- **Body Position & Orientation Control** - Adjust the robot's stance and orientation
-- **Servo Control System** - Direct control of all servomotors
-- **ROS2 Control Interface** - Advanced control nodes with visualization support
+## 🚀 Quick Start
 
----
+### Prerequisites
 
-## 👨‍💻 Development
+- ESP-IDF (v4.4+)
+- ROS 2 (Humble on Ubuntu 22.04 or Jazzy on Ubuntu 24.04)
+- micro-ROS
 
-This project is developed collaboratively with the assistance of AI (GitHub Copilot). The code architecture, algorithms, and implementation have been designed and optimized with AI guidance to ensure efficient and robust solutions for quadruped robot control.
+### 1. Clone the repository
 
----
-
-## 🛠️ Installation
-
-### Clone the repository
 ```bash
-git clone --recurse-submodules https://github.com/<your_username>/weefee_project.git
+git clone --recurse-submodules https://github.com/xelfe/weefee_project.git
 cd weefee_project
 ```
 
-### Install Dependencies
-
-#### For ESP-IDF
-1. Follow the official instructions to install ESP-IDF: [ESP-IDF Getting Started Guide](https://docs.espressif.com/projects/esp-idf/en/latest/esp32/get-started/index.html).
-2. Set up the ESP-IDF environment:
-   ```bash
-   . $HOME/esp/esp-idf/export.sh
-   ```
-
-#### For micro-ROS
-The project uses micro-ROS to enable ROS2 communication with the ESP32 microcontroller.
-
-1. Install micro-ROS dependencies:
-   ```bash
-   sudo apt update
-   sudo apt install python3-pip python3-colcon-common-extensions
-   pip3 install -U empy pyros-genmsg
-   ```
-2. Ensure submodules are properly initialized:
-   ```bash
-   git submodule update --init --recursive
-   ```
-3. The micro-ROS client library is included as an ESP-IDF component in the `/espidf/weefee_esp32/components/` directory.
-
-#### For ROS 2
-The project supports both ROS2 Humble (Ubuntu 22.04) and ROS2 Jazzy Jalisco (Ubuntu 24.04):
-
-##### ROS2 Humble (Ubuntu 22.04)
-1. Install ROS 2 Humble:
-   ```bash
-   sudo apt install ros-humble-desktop
-   sudo apt install ros-humble-osrf-testing-tools-cpp ros-humble-test-msgs
-   sudo apt install ros-humble-geometry-msgs ros-humble-visualization-msgs
-   ```
-
-##### ROS2 Jazzy Jalisco (Ubuntu 24.04)
-1. Install ROS 2 Jazzy:
-   ```bash
-   sudo apt install ros-jazzy-desktop
-   sudo apt install ros-jazzy-osrf-testing-tools-cpp ros-jazzy-test-msgs
-   sudo apt install ros-jazzy-geometry-msgs ros-jazzy-visualization-msgs
-   ```
-
-2. Set up ROS2 environment (for either version):
-   ```bash
-   # For Humble (Ubuntu 22.04)
-   echo "source /opt/ros/humble/setup.bash" >> ~/.bashrc
-   
-   # For Jazzy (Ubuntu 24.04)
-   echo "source /opt/ros/jazzy/setup.bash" >> ~/.bashrc
-   
-   source ~/.bashrc
-   ```
-
----
-
-## 🚀 Build and Flash
-
-### Build for ESP32
-1. Navigate to the ESP-IDF folder:
-   ```bash
-   cd espidf/weefee_esp32
-   ```
-2. Configure the project:
-   ```bash
-   idf.py set-target esp32
-   idf.py menuconfig
-   ```
-3. Build and flash the firmware:
-   ```bash
-   idf.py build
-   idf.py -p /dev/ttyUSB0 flash
-   ```
-
-### Build for ROS 2
-1. Navigate to the ROS 2 workspace:
-   ```bash
-   cd ros2_ws
-   ```
-2. Build the workspace:
-   ```bash
-   colcon build
-   ```
-3. Source the environment:
-   ```bash
-   source install/setup.bash
-   ```
-
-## 🖥️ Running the ROS2 Nodes
-
-### 1. Start the micro-ROS Agent
-First, start the micro-ROS agent to bridge between ROS2 and the ESP32:
+### 2. Build & Flash ESP32 Firmware
 
 ```bash
-# Install if you don't have it yet
-sudo apt install ros-$ROS_DISTRO-micro-ros-agent
+cd espidf/weefee_esp32
+. $HOME/esp/esp-idf/export.sh
+idf.py build
+idf.py -p /dev/ttyUSB0 flash
+```
 
-# Run the agent
+### 3. Build ROS2 Workspace
+
+```bash
+cd ../../ros2_ws
+colcon build
+source install/setup.bash
+```
+
+### 4. Run the System
+
+Terminal 1 - Start micro-ROS Agent:
+```bash
 ros2 run micro_ros_agent micro_ros_agent udp4 --port 8888
 ```
 
-### 2. Run a Control Node
-The ROS 2 workspace includes multiple nodes for different purposes:
+Terminal 2 - Run Kinematics Controller:
+```bash
+source install/setup.bash
+ros2 run weefee_node quadruped_kinematics_controller
+```
 
-1. **Basic controller**:
-   ```bash
-   ros2 run weefee_node servo_commander
-   ```
-   
-2. **Kinematics controller** (advanced gait planning):
-   ```bash
-   ros2 run weefee_node quadruped_kinematics_controller
-   ```
-   
-3. **Visualizer** (for use with RViz):
-   ```bash
-   ros2 run weefee_node quadruped_visualizer
-   ```
-
-To visualize the robot in RViz, add a MarkerArray display and subscribe to the "robot_visualization" topic.
-
----
+Terminal 3 (Optional) - Run Visualizer with RViz:
+```bash
+source install/setup.bash
+ros2 run weefee_node quadruped_visualizer
+```
 
 ## 📚 Documentation
 
-- [Project Wiki](https://github.com/yourusername/weefee_project/wiki) - Full project documentation
-- [ESP-IDF Documentation](https://docs.espressif.com/projects/esp-idf/en/latest/esp32/index.html)
-- [micro-ROS Documentation](https://micro.ros.org/)
-- [ROS 2 Humble Documentation](https://docs.ros.org/en/humble/index.html)
-- [ROS 2 Jazzy Documentation](https://docs.ros.org/en/jazzy/index.html)
+For detailed documentation, including installation instructions, code structure, and usage guides, please refer to our comprehensive wiki:
 
-## 📋 Code Structure
+- [Project Wiki](https://github.com/xelfe/weefee_project/wiki)
+- [Getting Started Guide](https://github.com/xelfe/weefee_project/wiki/Getting-Started)
+- [Command Reference](https://github.com/xelfe/weefee_project/wiki/Command-Reference)
+- [Kinematics Documentation](https://github.com/xelfe/weefee_project/wiki/Kinematics)
+- [Battery Monitoring System](https://github.com/xelfe/weefee_project/wiki/Battery-Monitoring)
 
-### ESP32 Modules
-- **quadruped_kinematics.h/c** - Mathematical functions for leg movement calculations
-- **quadruped_robot.h/c** - High-level robot control and gait implementation 
-- **servo_controller.h/c** - Low-level servo motor control interface
-- **main.c** - Main application with micro-ROS integration
+## 📖 Basic Commands
 
-### ROS2 Modules
-- **servo_commander.cpp** - Basic quadruped controller with demo sequence
-- **quadruped_kinematics_controller.cpp** - Advanced controller with gait planning
-- **quadruped_inverse_kinematics.h** - Inverse and forward kinematics implementation
-- **quadruped_visualizer.cpp** - Robot visualization for RViz
+Control your robot with these basic ROS2 commands:
 
-## 🤖 Control Commands
+```bash
+# Make the robot stand
+ros2 topic pub --once /robot_command std_msgs/msg/String "{data: 'stand'}"
 
-The quadruped robot responds to the following commands:
+# Start walking at normal speed
+ros2 topic pub --once /robot_command std_msgs/msg/String "{data: 'walk'}"
 
-- **stand**: Put the robot in standing position
-- **sit**: Put the robot in sitting position
-- **walk [speed]**: Start walking gait (optional speed parameter)
-- **trot**: Start trotting gait
-- **stop**: Stop any current movement
-- **position x y z**: Set body position (in mm)
-- **orientation roll pitch yaw**: Set body orientation (in degrees)
+# Stop all movement
+ros2 topic pub --once /robot_command std_msgs/msg/String "{data: 'stop'}"
+```
 
-These commands can be sent via ROS2 topics or tested directly through the controller nodes.
+## 🛠️ Project Structure
 
-The quadruped control system uses inverse kinematics to calculate joint angles from desired foot positions, supporting various gaits and body movements.
+- **espidf/** – ESP32 firmware with micro-ROS integration
+- **ros2_ws/** – ROS2 workspace with control nodes
+- **wiki/** – Project documentation
+
+## 📄 License
+
+This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
+
+## 👨‍💻 Development
+
+This project is developed collaboratively with the assistance of AI (GitHub Copilot) to ensure efficient and robust solutions for quadruped robot control.
+
+## 🔄 Last Updated
+
+May 9, 2025

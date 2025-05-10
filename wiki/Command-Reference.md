@@ -92,6 +92,13 @@ class RobotController(Node):
         
     def status_callback(self, msg):
         self.get_logger().info(f'Robot status: {msg.data}')
+        
+        # Example of handling battery status messages
+        if "Battery status" in msg.data:
+            if "CRITICAL" in msg.data:
+                self.get_logger().warn("Battery critically low, robot will sit to prevent damage")
+            elif "LOW" in msg.data:
+                self.get_logger().warn("Battery low, consider recharging soon")
 
 def main():
     rclpy.init()
@@ -166,6 +173,16 @@ private:
   
   void status_callback(const std_msgs::msg::String::SharedPtr msg) {
     RCLCPP_INFO(this->get_logger(), "Robot status: %s", msg->data.c_str());
+    
+    // Example of handling battery status messages
+    std::string status = msg->data;
+    if (status.find("Battery status") != std::string::npos) {
+      if (status.find("CRITICAL") != std::string::npos) {
+        RCLCPP_WARN(this->get_logger(), "Battery critically low, robot will sit to prevent damage");
+      } else if (status.find("LOW") != std::string::npos) {
+        RCLCPP_WARN(this->get_logger(), "Battery low, consider recharging soon");
+      }
+    }
   }
   
   void run_demo() {
@@ -226,6 +243,25 @@ After sending commands, the robot responds with status messages on the `/robot_s
 | `position 20 0 10` | "Position set to [20.00, 0.00, 10.00]" |
 | `orientation 0 10 5` | "Orientation set to [0.00, 10.00, 5.00]" |
 
+## Battery Status
+
+The robot periodically publishes battery status messages on the `/robot_status` topic. These messages include:
+
+| Battery State | Status Message Format | Example |
+|---------------|----------------------|---------|
+| Normal | "Battery status: X.XXV (Y.Y%) - OK" | "Battery status: 7.40V (85.0%) - OK" |
+| Low | "Battery status: X.XXV (Y.Y%) - LOW" | "Battery status: 7.10V (30.0%) - LOW" |
+| Critical | "Battery status: X.XXV (Y.Y%) - CRITICAL" | "Battery status: 6.80V (5.0%) - CRITICAL" |
+
+When the battery reaches a critical level, the robot will automatically:
+1. Stop any current movement
+2. Switch to a sitting position to prevent damage from falling
+3. Continue sending status messages about the critical battery state
+
+It is recommended to monitor these status messages in your application and implement appropriate handling for low battery conditions.
+
+For more detailed information about the battery monitoring system, see the [Battery Monitoring](Battery-Monitoring.md) documentation.
+
 ## Error Handling
 
 If the robot receives an invalid command, it will respond with an error message:
@@ -244,3 +280,11 @@ If the robot receives an invalid command, it will respond with an error message:
 - Servo angle ranges may be limited by mechanical constraints
 - Position commands are relative to the default standing position
 - Orientation commands are relative to the flat orientation (roll=0, pitch=0, yaw=0)
+- Battery monitoring is performed automatically in the background
+- The system uses a 2S LiPo battery (7.4V nominal)
+- Low battery threshold is set at approximately 7.0V
+- Critical battery threshold is set at approximately 6.6V
+
+## Last Updated
+
+May 9, 2025
