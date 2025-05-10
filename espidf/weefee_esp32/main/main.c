@@ -31,6 +31,8 @@
 #include "esp_log.h"
 #include "esp_system.h"
 #include "driver/ledc.h"
+#include "nvs_flash.h"
+#include "nvs.h"
 
 // Includes for quadruped robot
 #include "servo_controller.h"
@@ -61,6 +63,9 @@
 // Logging tag
 static const char *TAG = "weefee_main";
 
+// Flag to track if the robot is calibrated
+static bool g_robot_calibrated = false;
+
 // Define error checking macros with less verbose output
 #define RCCHECK(fn) { rcl_ret_t rc = fn; if((rc != RCL_RET_OK)) { ESP_LOGE(TAG, "RC error %ld at %d", (long)rc, __LINE__); vTaskDelete(NULL); }}
 #define RCSOFTCHECK(fn) { rcl_ret_t rc = fn; if((rc != RCL_RET_OK)) { ESP_LOGW(TAG, "RC warning %ld at %d", (long)rc, __LINE__); }}
@@ -82,6 +87,12 @@ static const char *TAG = "weefee_main";
 #define CMD_PREFIX_TROT "trot"
 #define CMD_PREFIX_POSITION "position"
 #define CMD_PREFIX_ORIENTATION "orientation"
+#define CMD_PREFIX_CALIBRATE "calibrate"
+
+// NVS constants for storing calibration data
+#define NVS_NAMESPACE "weefee"
+#define NVS_CALIBRATION_KEY "calibrated"
+#define NVS_SERVO_VALUES_KEY "servo_vals"
 
 // micro-ROS entities
 typedef struct {
@@ -109,6 +120,108 @@ static orientation_t temp_orientation = {0};
 
 // Forward declarations
 static void publish_status(microros_context_t *ctx, const char *status);
+
+/**
+ * @brief Saves calibration data to NVS
+ * 
+ * Stores the calibration flag and servo values in non-volatile storage
+ * to remember calibration across reboots
+ * 
+ * @return ESP_OK if successful, otherwise an error code
+ */
+static esp_err_t save_calibration_to_nvs(void) {
+    nvs_handle_t nvs_handle;
+    esp_err_t err;
+
+    // Open NVS namespace
+    err = nvs_open(NVS_NAMESPACE, NVS_READWRITE, &nvs_handle);
+    if (err != ESP_OK) {
+        ESP_LOGE(TAG, "Error opening NVS handle: %s", esp_err_to_name(err));
+        return err;
+    }
+
+    // Get current servo values
+    const int* servo_values = get_servo_values();
+    
+    // Write calibration flag and servo values
+    err = nvs_set_u8(nvs_handle, NVS_CALIBRATION_KEY, 1); // 1 = calibrated
+    if (err != ESP_OK) {
+        ESP_LOGE(TAG, "Error writing calibration flag: %s", esp_err_to_name(err));
+        nvs_close(nvs_handle);
+        return err;
+    }
+    
+    // Write servo values as blob
+    err = nvs_set_blob(nvs_handle, NVS_SERVO_VALUES_KEY, servo_values, SERVO_COUNT * sizeof(int));
+    if (err != ESP_OK) {
+        ESP_LOGE(TAG, "Error writing servo values: %s", esp_err_to_name(err));
+        nvs_close(nvs_handle);
+        return err;
+    }
+    
+    // Commit changes
+    err = nvs_commit(nvs_handle);
+    if (err != ESP_OK) {
+        ESP_LOGE(TAG, "Error committing NVS changes: %s", esp_err_to_name(err));
+    } else {
+        ESP_LOGI(TAG, "Calibration data saved to NVS successfully");
+    }
+    
+    // Close NVS handle
+    nvs_close(nvs_handle);
+    
+    return err;
+}
+
+/**
+ * @brief Loads calibration data from NVS
+ * 
+ * Retrieves the calibration flag and servo values from non-volatile storage
+ * and applies them if the robot has been calibrated before
+ * 
+ * @return true if calibration was loaded successfully, false otherwise
+ */
+static bool load_calibration_from_nvs(void) {
+    nvs_handle_t nvs_handle;
+    esp_err_t err;
+    
+    // Open NVS namespace
+    err = nvs_open(NVS_NAMESPACE, NVS_READONLY, &nvs_handle);
+    if (err != ESP_OK) {
+        ESP_LOGW(TAG, "Error opening NVS handle, robot may need calibration: %s", esp_err_to_name(err));
+        return false;
+    }
+    
+    // Check if robot is calibrated
+    uint8_t is_calibrated = 0;
+    err = nvs_get_u8(nvs_handle, NVS_CALIBRATION_KEY, &is_calibrated);
+    if (err != ESP_OK || is_calibrated != 1) {
+        ESP_LOGW(TAG, "Robot not calibrated, will need calibration before use");
+        nvs_close(nvs_handle);
+        return false;
+    }
+    
+    // Get servo values
+    int servo_positions[SERVO_COUNT];
+    size_t required_size = SERVO_COUNT * sizeof(int);
+    
+    err = nvs_get_blob(nvs_handle, NVS_SERVO_VALUES_KEY, servo_positions, &required_size);
+    if (err != ESP_OK || required_size != SERVO_COUNT * sizeof(int)) {
+        ESP_LOGW(TAG, "Error reading calibration values: %s", esp_err_to_name(err));
+        nvs_close(nvs_handle);
+        return false;
+    }
+    
+    // Close NVS handle
+    nvs_close(nvs_handle);
+    
+    // Apply calibration values
+    set_servo_values(servo_positions);
+    apply_servo_positions(servo_positions);
+    
+    ESP_LOGI(TAG, "Loaded calibration values from NVS");
+    return true;
+}
 
 /**
  * @brief Process battery status and include in status messages
@@ -444,6 +557,39 @@ static void process_orientation_command(const char* cmd) {
 }
 
 /**
+ * @brief Sets all servos to their calibration positions and saves calibration to NVS
+ * This is used during robot assembly to ensure correct positioning
+ * The calibration is saved to NVS so it persists across reboots
+ */
+static void process_calibrate_command(void) {
+    // Standard calibration positions for each leg (90, 45, 90 degrees)
+    // For a robot with 12 servos (4 legs with 3 servos each):
+    // - 90 degrees for coxa joints (horizontal position)
+    // - 45 degrees for femur joints (45 degree angle)
+    // - 90 degrees for tibia joints (straight position)
+    int calibration_positions[SERVO_COUNT] = {
+        90, 45, 90,  // Front right leg (coxa, femur, tibia)
+        90, 45, 90,  // Front left leg
+        90, 45, 90,  // Rear right leg
+        90, 45, 90   // Rear left leg
+    };
+    
+    // Apply calibration positions
+    set_servo_values(calibration_positions);
+    apply_servo_positions(calibration_positions);
+    
+    // Save calibration to NVS
+    esp_err_t err = save_calibration_to_nvs();
+    if (err == ESP_OK) {
+        ESP_LOGI(TAG, "Applied and saved calibration positions (90,45,90) to all legs");
+        publish_status(&g_microros_ctx, "Calibration positions applied and saved (90,45,90)");
+    } else {
+        ESP_LOGW(TAG, "Applied calibration positions but failed to save to NVS");
+        publish_status(&g_microros_ctx, "Calibration applied but not saved to memory");
+    }
+}
+
+/**
  * @brief Callback for pose messages
  * @param msgin Pointer to the received message
  */
@@ -502,8 +648,28 @@ static void command_callback(const void *msgin) {
              msg->data.size > 2 ? (unsigned char)msg->data.data[2] : 0,
              msg->data.size > 3 ? (unsigned char)msg->data.data[3] : 0);
 
-    // The rest of the command processing code remains unchanged
+    // Check if it's a calibration command - always allow this
+    if (strcmp(command, CMD_PREFIX_CALIBRATE) == 0) {
+        process_calibrate_command();
+        g_robot_calibrated = true;  // Mark as calibrated after processing
+        return;
+    }
     
+    // Block movement commands if not calibrated
+    if (!g_robot_calibrated) {
+        // Only specific commands are allowed when not calibrated
+        if (strncmp(command, CMD_PREFIX_SERVO, strlen(CMD_PREFIX_SERVO)) == 0) {
+            // Servo commands are allowed for manual calibration
+            process_servo_command(command);
+        } else {
+            // All other commands are blocked
+            ESP_LOGW(TAG, "Command '%s' blocked because robot is not calibrated!", command);
+            publish_status(&g_microros_ctx, "ERROR: Robot not calibrated! Send 'calibrate' command first.");
+        }
+        return;
+    }
+    
+    // Process commands normally if calibrated
     // Check command type by prefix
     if (strncmp(command, CMD_PREFIX_SERVO, strlen(CMD_PREFIX_SERVO)) == 0) {
         // Servo command
@@ -791,8 +957,26 @@ static void micro_ros_task(void *arg) {
  * @brief Main application entry point
  */
 void app_main(void) {
+    // Initialize NVS for configuration storage
+    esp_err_t ret = nvs_flash_init();
+    if (ret == ESP_ERR_NVS_NO_FREE_PAGES || ret == ESP_ERR_NVS_NEW_VERSION_FOUND) {
+        // NVS partition was truncated or corrupted, erase and retry
+        ESP_ERROR_CHECK(nvs_flash_erase());
+        ret = nvs_flash_init();
+    }
+    ESP_ERROR_CHECK(ret);
+    ESP_LOGI(TAG, "NVS initialized");
+    
     // Initialize robot hardware
     robot_init();
+    
+    // Load calibration data from NVS
+    g_robot_calibrated = load_calibration_from_nvs();
+    if (!g_robot_calibrated) {
+        ESP_LOGW(TAG, "Robot not calibrated! Send 'calibrate' command before using the robot.");
+    } else {
+        ESP_LOGI(TAG, "Robot calibration loaded from memory");
+    }
     
     // Initialize battery monitor if enabled
 #ifdef CONFIG_BAT_MONITOR_ENABLED

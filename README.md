@@ -98,6 +98,9 @@ ros2 topic pub --once /robot_command std_msgs/msg/String "{data: 'walk'}"
 
 # Stop all movement
 ros2 topic pub --once /robot_command std_msgs/msg/String "{data: 'stop'}"
+
+# Calibration mode for assembly (sets servos to 90°, 45°, 90° positions)
+ros2 topic pub --once /robot_command std_msgs/msg/String "{data: 'calibrate'}"
 ```
 
 ## 🛠️ Project Structure
