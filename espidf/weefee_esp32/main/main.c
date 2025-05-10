@@ -5,6 +5,7 @@
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy
  * of this software and associated documentation files (the "Software"), to deal
+ * of this software and associated documentation files (the "Software"), to deal
  * in the Software without restriction, including without limitation the rights
  * to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
  * copies of the Software, and to permit persons to whom the Software is
@@ -48,6 +49,7 @@
 #include <rclc/executor.h>
 #include <geometry_msgs/msg/pose.h>
 #include <std_msgs/msg/string.h>
+#include <std_msgs/msg/int32_multi_array.h>
 
 #ifdef CONFIG_MICRO_ROS_ESP_XRCE_DDS_MIDDLEWARE
 #include <rmw_microros/rmw_microros.h>
@@ -99,12 +101,14 @@ typedef struct {
     rcl_node_t node;
     rcl_subscription_t pose_sub;
     rcl_subscription_t command_sub;
+    rcl_subscription_t servo_angles_sub;
     rcl_publisher_t status_pub;
     
     // Messages
     geometry_msgs__msg__Pose pose_msg;
     std_msgs__msg__String command_msg;
     std_msgs__msg__String status_msg;
+    std_msgs__msg__Int32MultiArray servo_angles_msg;
     
     // Executor
     rclc_executor_t executor;
@@ -317,6 +321,24 @@ static void init_messages(microros_context_t *ctx) {
     ctx->pose_msg.orientation.y = 0.0;
     ctx->pose_msg.orientation.z = 0.0;
     ctx->pose_msg.orientation.w = 1.0;
+}
+
+/**
+ * @brief Initialize message structure for servo_angles
+ * @param ctx Pointer to microros_context_t structure
+ */
+static void init_servo_angles_msg(microros_context_t *ctx) {
+    // Initialize the servo_angles message
+    ctx->servo_angles_msg.data.capacity = SERVO_COUNT;
+    ctx->servo_angles_msg.data.size = SERVO_COUNT;
+    ctx->servo_angles_msg.data.data = (int32_t*) malloc(SERVO_COUNT * sizeof(int32_t));
+    
+    // Initialize with default values (90 degrees)
+    for (int i = 0; i < SERVO_COUNT; i++) {
+        ctx->servo_angles_msg.data.data[i] = 90;
+    }
+    
+    ESP_LOGI(TAG, "Servo angles message initialized with capacity for %d servos", SERVO_COUNT);
 }
 
 /**
@@ -719,6 +741,34 @@ static void command_callback(const void *msgin) {
 }
 
 /**
+ * @brief Callback for servo angles messages
+ * @param msgin Pointer to the received message
+ */
+static void servo_angles_callback(const void *msgin) {
+    const std_msgs__msg__Int32MultiArray *msg = (const std_msgs__msg__Int32MultiArray *)msgin;
+    
+    // Check if we received the correct number of servo values
+    if (msg->data.size != SERVO_COUNT) {
+        ESP_LOGW(TAG, "Error: received %d servo values, expected %d", 
+                 (int)msg->data.size, SERVO_COUNT);
+        return;
+    }
+    
+    // Convert to integer array for servo controller
+    int servo_positions[SERVO_COUNT];
+    for (int i = 0; i < SERVO_COUNT; i++) {
+        servo_positions[i] = (int)msg->data.data[i];
+    }
+    
+    // Apply servo positions directly
+    set_servo_values(servo_positions);
+    apply_servo_positions(servo_positions);
+    
+    // Log at debug level to avoid flooding the logs
+    LOG_DEBUG(TAG, "Applied servo positions from ROS");
+}
+
+/**
  * @brief Initialize micro-ROS communication
  * @param ctx Pointer to microros_context_t structure to initialize
  * @return true if initialization successful, false otherwise
@@ -778,6 +828,7 @@ static bool init_microros(microros_context_t *ctx) {
     // Initialize messages
     ESP_LOGI(TAG, "Initializing message structures");
     init_messages(ctx);
+    init_servo_angles_msg(ctx);
     vTaskDelay(pdMS_TO_TICKS(TOPIC_SWITCH_DELAY_MS));
     
     // Initialize subscriptions and publishers with longer delays between initializations
@@ -799,6 +850,15 @@ static bool init_microros(microros_context_t *ctx) {
     }
     vTaskDelay(pdMS_TO_TICKS(TOPIC_SWITCH_DELAY_MS * 2));  // Longer delay
     
+    if (!init_subscription(
+            &ctx->servo_angles_sub,
+            &ctx->node,
+            ROSIDL_GET_MSG_TYPE_SUPPORT(std_msgs, msg, Int32MultiArray),
+            "servo_angles")) {
+        return false;
+    }
+    vTaskDelay(pdMS_TO_TICKS(TOPIC_SWITCH_DELAY_MS * 2));  // Longer delay
+    
     if (!init_publisher(
             &ctx->status_pub,
             &ctx->node,
@@ -808,10 +868,10 @@ static bool init_microros(microros_context_t *ctx) {
     }
     vTaskDelay(pdMS_TO_TICKS(TOPIC_SWITCH_DELAY_MS * 2));  // Longer delay after the last endpoint
 
-    // Important: executor with explicit capacity of 3 instead of 2
-    // Example ping_pong explicitly uses capacity
-    ESP_LOGI(TAG, "Initializing executor with capacity 3");
-    RCCHECK(rclc_executor_init(&ctx->executor, &ctx->support.context, 3, &allocator));
+    // Important: executor with explicit capacity of 4 instead of 3
+    // to handle the new servo_angles subscription
+    ESP_LOGI(TAG, "Initializing executor with capacity 4");
+    RCCHECK(rclc_executor_init(&ctx->executor, &ctx->support.context, 4, &allocator));
     
     ESP_LOGI(TAG, "Adding subscriptions to executor");
     RCCHECK(rclc_executor_add_subscription(
@@ -822,6 +882,11 @@ static bool init_microros(microros_context_t *ctx) {
     RCCHECK(rclc_executor_add_subscription(
         &ctx->executor, &ctx->pose_sub, &ctx->pose_msg,
         &pose_callback, ON_NEW_DATA));
+    vTaskDelay(pdMS_TO_TICKS(500));  // Small delay between each addition
+
+    RCCHECK(rclc_executor_add_subscription(
+        &ctx->executor, &ctx->servo_angles_sub, &ctx->servo_angles_msg,
+        &servo_angles_callback, ON_NEW_DATA));
 
     // Give the system time to fully initialize
     vTaskDelay(pdMS_TO_TICKS(1000));
@@ -842,6 +907,7 @@ static bool init_microros(microros_context_t *ctx) {
 static void cleanup_microros(microros_context_t *ctx) {
     RCCHECK(rcl_subscription_fini(&ctx->pose_sub, &ctx->node));
     RCCHECK(rcl_subscription_fini(&ctx->command_sub, &ctx->node));
+    RCCHECK(rcl_subscription_fini(&ctx->servo_angles_sub, &ctx->node));
     RCCHECK(rcl_publisher_fini(&ctx->status_pub, &ctx->node));
     RCCHECK(rcl_node_fini(&ctx->node));
     

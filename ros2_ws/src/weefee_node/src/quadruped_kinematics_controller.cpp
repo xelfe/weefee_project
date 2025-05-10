@@ -27,6 +27,7 @@
 #include "std_msgs/msg/string.hpp"
 #include "std_msgs/msg/float32_multi_array.hpp"
 #include "geometry_msgs/msg/pose.hpp"
+#include "quadruped_inverse_kinematics.h"
 #include <iostream>
 #include <vector>
 #include <string>
@@ -85,6 +86,7 @@ public:
     {
         // Publishers
         command_pub_ = this->create_publisher<std_msgs::msg::String>("robot_command", 10);
+        servo_angles_pub_ = this->create_publisher<std_msgs::msg::Int32MultiArray>("servo_angles", 10);
         
         // Subscribers
         body_pose_sub_ = this->create_subscription<geometry_msgs::msg::Pose>(
@@ -324,14 +326,45 @@ private:
      */
     void update_leg_positions()
     {
+        // Create kinematics engine
+        QuadrupedInverseKinematics kinematics;
+        kinematics.set_robot_dimensions(body_length_, body_width_, 30.0f, 70.0f, 90.0f);
+
+        // Prepare message to hold servo angles
+        auto servo_angles_msg = std_msgs::msg::Int32MultiArray();
+        servo_angles_msg.data.resize(12); // 4 legs × 3 servos
+        
+        // Calculate angles for each leg using inverse kinematics
         for (int i = 0; i < 4; i++) {
-            legs_[i].foot_position = target_foot_positions_[i];
+            // Apply body position/orientation adjustments to foot position
+            Vec3 adjusted_target = target_foot_positions_[i];
             
-            // Here we would calculate inverse kinematics to get joint angles
-            // Then update the legs_[i].angles array
+            // TODO: Add body orientation transformation calculations here
+            // For now just apply position offset
+            adjusted_target.x += body_position_.x;
+            adjusted_target.y += body_position_.y;
+            adjusted_target.z += body_position_.z;
             
-            // In a real implementation, we would then send these angles to the robot
+            // Calculate joint angles using inverse kinematics
+            float angles[3] = {0.0f};
+            if (kinematics.inverse_kinematics(i, adjusted_target, angles)) {
+                // Store the calculated angles
+                for (int j = 0; j < 3; j++) {
+                    legs_[i].angles[j] = angles[j];
+                    
+                    // Convert to integer and add to message
+                    int servo_idx = i * 3 + j;
+                    servo_angles_msg.data[servo_idx] = static_cast<int>(round(angles[j]));
+                }
+            } else {
+                RCLCPP_WARN(this->get_logger(), "Leg %d: Target position unreachable", i);
+            }
         }
+        
+        // Publish servo angles
+        servo_angles_pub_->publish(servo_angles_msg);
+        
+        RCLCPP_DEBUG(this->get_logger(), "Published servo angles");
     }
     
     /**
@@ -440,6 +473,7 @@ private:
 
     // Publishers
     rclcpp::Publisher<std_msgs::msg::String>::SharedPtr command_pub_;
+    rclcpp::Publisher<std_msgs::msg::Int32MultiArray>::SharedPtr servo_angles_pub_;
     
     // Subscribers
     rclcpp::Subscription<geometry_msgs::msg::Pose>::SharedPtr body_pose_sub_;

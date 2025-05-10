@@ -243,24 +243,16 @@ esp_err_t robot_set_leg_position(int leg_index, const vec3_t *position) {
         return ESP_ERR_INVALID_ARG;
     }
     
-    // Calculate inverse kinematics to determine angles
-    float angles[3];
-    esp_err_t result = inverse_kinematics(&robot.legs[leg_index], position, angles);
+    // Just store the target position, but don't calculate angles
+    // since that's now handled by ROS2
+    robot.legs[leg_index].foot_position = *position;
     
-    if (result == ESP_OK) {
-        // Update leg angles
-        for (int i = 0; i < JOINT_COUNT; i++) {
-            robot.legs[leg_index].angles[i] = angles[i];
-        }
-        
-        // Update foot position
-        robot.legs[leg_index].foot_position = *position;
-        
-        // Update servos
-        robot_map_angles_to_servos();
-    }
+    // Note: We're not calling inverse_kinematics or updating angles here anymore
+    // Those values will be received directly from ROS2 via servo_angles_callback
+    ESP_LOGD(TAG, "Leg %d target position set to [%.2f, %.2f, %.2f] (angles will be set by ROS2)",
+             leg_index, position->x, position->y, position->z);
     
-    return result;
+    return ESP_OK;
 }
 
 // Put robot in standing position
@@ -373,9 +365,8 @@ static void robot_update_with_flag(bool positions_changed) {
     uint32_t current_time = xTaskGetTickCount() * portTICK_PERIOD_MS;
     
     if (robot.is_walking) {
-        // Update walk cycle (implement according to chosen gait)
-        
-        // Advance cycle by 1%
+        // Update walk cycle progress for state tracking
+        // This is mainly for ROS2 to know where we are in the cycle
         robot.walk_cycle_progress += 0.01f;
         if (robot.walk_cycle_progress >= 1.0f) {
             robot.walk_cycle_progress = 0.0f;
@@ -386,14 +377,13 @@ static void robot_update_with_flag(bool positions_changed) {
             }
         }
         
-        // Walking always requires position updates
-        positions_changed = true;
+        // Note: We're not calculating leg positions anymore as ROS2 handles that
+        // We just update the cycle progress for synchronization
     }
     
-    // Update servos only when positions have changed
-    if (positions_changed) {
-        robot_map_angles_to_servos();
-    }
+    // We only update servos when ROS2 sends us new angles through servo_angles_callback
+    // So we don't need to call robot_map_angles_to_servos() here anymore
+    // positions_changed flag is now ignored as it's handled by the ROS2 callback
 }
 
 // Update robot state
