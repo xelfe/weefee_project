@@ -4,6 +4,14 @@ A complete quadruped robot control system built on ESP32 (using ESP-IDF v5.4.1 +
 
 <img src="img/large_display_1.JPG" alt="Quadruped Robot" width="400"/>
 
+## 🤖 Hardware Reference
+
+This project is based on the [ESP32 Small Robot Dog](https://www.instructables.com/ESP32-Small-Robot-Dog/) design. The default physical implementation uses the 3D printable parts and assembly instructions from:
+- 3D printing files: [Thingiverse](https://www.thingiverse.com/thing:4822059)
+- Hardware documentation: [GitHub Repository](https://github.com/SovGVD/esp32-small-robot-dog-hardware)
+
+This affordable and accessible quadruped platform provides an excellent foundation for experimenting with ROS2 and robotics control systems. While the default implementation follows this design, the software is adaptable to other quadruped models with appropriate configuration.
+
 ## ✨ Key Features
 
 - **Inverse & Forward Kinematics** - Precise leg position control
