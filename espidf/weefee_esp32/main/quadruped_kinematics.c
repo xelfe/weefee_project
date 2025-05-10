@@ -107,8 +107,12 @@ esp_err_t inverse_kinematics(leg_t *leg, const vec3_t *target_pos, float angles_
     float alpha = acosf(cos_alpha) * RAD_TO_DEG;
     float beta = acosf(cos_beta) * RAD_TO_DEG;
     
-    // Final angle calculations
+    // Final angle calculations - adjusted for femurs pointing backward and tibias forward
+    // For femur: 90° corresponds to a vertical position, < 90° points backward
     angles_out[JOINT_FEMUR] = 90.0f - (gamma + alpha);
+    
+    // For tibia: with femur at 90°, tibia at 90° would be perpendicular to femur
+    // Since femur points backward, we need to adjust tibia to point forward
     angles_out[JOINT_TIBIA] = 180.0f - beta;
     
 #ifdef CONFIG_DEBUG_LOGS_ENABLED
@@ -128,10 +132,10 @@ esp_err_t inverse_kinematics(leg_t *leg, const vec3_t *target_pos, float angles_
 }
 
 void forward_kinematics(const leg_t *leg, const float angles[3], vec3_t *position_out) {
-    // Convert angles to radians once
+    // Convert angles to radians once - adjusted for femur backward, tibia forward configuration
     float coxa_rad = angles[JOINT_COXA] * DEG_TO_RAD;
-    float femur_rad = (90.0f - angles[JOINT_FEMUR]) * DEG_TO_RAD;  // Pre-adjust for computation
-    float tibia_rad = (90.0f + angles[JOINT_TIBIA] - angles[JOINT_FEMUR]) * DEG_TO_RAD;
+    float femur_rad = (90.0f - angles[JOINT_FEMUR]) * DEG_TO_RAD;  // Adjustment for backward pointing femur
+    float tibia_rad = (90.0f + angles[JOINT_TIBIA] - angles[JOINT_FEMUR]) * DEG_TO_RAD;  // Adjustment for forward pointing tibia
     
     // Calculate trig values once
     float cos_coxa = cosf(coxa_rad);

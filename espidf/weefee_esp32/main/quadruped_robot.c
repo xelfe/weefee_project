@@ -131,8 +131,15 @@ void robot_init(void) {
     // Apply initial joint angles to physical servos
     for (int i = 0; i < LEG_COUNT; i++) {
         for (int j = 0; j < JOINT_COUNT; j++) {
+            int servo_angle = (int)robot.legs[i].angles[j];
+            
+            // Invert the coxa angles due to gear mechanism that reverses servo movement
+            if (j == JOINT_COXA) {
+                servo_angle = 180 - servo_angle; // Invert the angle (180° - angle)
+            }
+            
             // Store angle in servo array based on the mapping
-            servo_positions[robot.legs[i].servo_ids[j]] = (int)robot.legs[i].angles[j];
+            servo_positions[robot.legs[i].servo_ids[j]] = servo_angle;
         }
     }
     
@@ -147,7 +154,7 @@ void robot_init(void) {
     }
     
     ESP_LOGI(TAG, "Robot initialization complete with servos at configured angles");
-    LOG_DEBUG(TAG, "Initial angles - COXA:90°, FEMUR:45°, TIBIA:90°");
+    LOG_DEBUG(TAG, "Initial angles - COXA:90° (inverted to 90°), FEMUR:45°, TIBIA:90°");
 }
 
 // Update servo angles from calculated angles
@@ -162,6 +169,11 @@ void robot_map_angles_to_servos(void) {
         for (int j = 0; j < JOINT_COUNT; j++) {
             // Convert calculated angles to servo angles
             int servo_angle = (int)robot.legs[i].angles[j];
+            
+            // Invert the coxa angles due to gear mechanism that reverses servo movement
+            if (j == JOINT_COXA) {
+                servo_angle = 180 - servo_angle; // Invert the angle (180° - angle)
+            }
             
             // Safety limits - log only if outside limits
             if (servo_angle < 0) {
