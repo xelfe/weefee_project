@@ -1,6 +1,6 @@
 # 🐾 Weefee Project
 
-A complete quadruped robot control system built on ESP32 (using ESP-IDF + micro-ROS) and ROS 2, featuring inverse kinematics, multiple gait patterns, and ROS2 visualization.
+A complete quadruped robot control system built on ESP32 (using ESP-IDF v5.4.1 + micro-ROS) and ROS 2 Jazzy, featuring inverse kinematics, multiple gait patterns, and ROS2 visualization.
 
 ![Quadruped Robot](https://i.imgur.com/example-placeholder.jpg)
 
@@ -16,9 +16,9 @@ A complete quadruped robot control system built on ESP32 (using ESP-IDF + micro-
 
 ### Prerequisites
 
-- ESP-IDF (v4.4+)
-- ROS 2 (Humble on Ubuntu 22.04 or Jazzy on Ubuntu 24.04)
-- micro-ROS
+- ESP-IDF v5.4.1 (other versions are not guaranteed to work)
+- ROS 2 Jazzy Jalisco (Ubuntu 24.04)
+- micro-ROS for ESP-IDF v5.4.1
 
 ### 1. Clone the repository
 
@@ -31,7 +31,7 @@ cd weefee_project
 
 ```bash
 cd espidf/weefee_esp32
-. $HOME/esp/esp-idf/export.sh
+. $HOME/esp/esp-idf/export.sh  # Make sure this points to ESP-IDF v5.4.1
 idf.py build
 idf.py -p /dev/ttyUSB0 flash
 ```
@@ -40,6 +40,7 @@ idf.py -p /dev/ttyUSB0 flash
 
 ```bash
 cd ../../ros2_ws
+source /opt/ros/jazzy/setup.bash  # Specifically using ROS 2 Jazzy
 colcon build
 source install/setup.bash
 ```
@@ -48,17 +49,20 @@ source install/setup.bash
 
 Terminal 1 - Start micro-ROS Agent:
 ```bash
+source /opt/ros/jazzy/setup.bash
 ros2 run micro_ros_agent micro_ros_agent udp4 --port 8888
 ```
 
 Terminal 2 - Run Kinematics Controller:
 ```bash
+source /opt/ros/jazzy/setup.bash
 source install/setup.bash
 ros2 run weefee_node quadruped_kinematics_controller
 ```
 
 Terminal 3 (Optional) - Run Visualizer with RViz:
 ```bash
+source /opt/ros/jazzy/setup.bash
 source install/setup.bash
 ros2 run weefee_node quadruped_visualizer
 ```

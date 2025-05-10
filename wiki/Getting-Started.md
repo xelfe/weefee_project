@@ -6,9 +6,9 @@ This guide will help you set up the Weefee quadruped robot project on your syste
 
 Before you begin, ensure you have the following:
 
-- Ubuntu 22.04 (for ROS2 Humble) or Ubuntu 24.04 (for ROS2 Jazzy)
+- Ubuntu 24.04 (for ROS2 Jazzy)
 - Git
-- Python 3.8 or newer
+- Python 3.10 or newer
 - Basic knowledge of Linux command line
 - An ESP32 development board
 - The quadruped robot hardware or simulation environment
@@ -18,13 +18,13 @@ Before you begin, ensure you have the following:
 ### 1. Clone the Repository
 
 ```bash
-git clone --recurse-submodules https://github.com/yourusername/weefee_project.git
+git clone --recurse-submodules https://github.com/xelfe/weefee_project.git
 cd weefee_project
 ```
 
 ### 2. Set Up ESP-IDF Environment
 
-ESP-IDF is the official development framework for ESP32 microcontrollers.
+We specifically use ESP-IDF v5.4.1 for this project. Other versions may cause compatibility issues.
 
 1. Install ESP-IDF prerequisites:
 
@@ -39,7 +39,7 @@ mkdir -p $HOME/esp
 cd $HOME/esp
 git clone --recursive https://github.com/espressif/esp-idf.git
 cd esp-idf
-git checkout release/v4.4
+git checkout v5.4.1  # Specifically using v5.4.1
 ```
 
 3. Run the installation script:
@@ -75,52 +75,16 @@ git submodule update --init --recursive
 
 3. The micro-ROS client library is included as an ESP-IDF component in the `/espidf/weefee_esp32/components/` directory.
 
-4. The micro-ROS agent (host-side) needs to be installed on your computer:
+4. Install the micro-ROS agent (host-side) on your computer:
 
 ```bash
-# For ROS2 Humble (Ubuntu 22.04)
-sudo apt install ros-humble-micro-ros-agent
-
 # For ROS2 Jazzy (Ubuntu 24.04)
 sudo apt install ros-jazzy-micro-ros-agent
 ```
 
-### 4. Install ROS2
+### 4. Install ROS2 Jazzy Jalisco
 
-The project supports both ROS2 Humble (Ubuntu 22.04) and ROS2 Jazzy Jalisco (Ubuntu 24.04).
-
-#### Option 1: ROS2 Humble (Ubuntu 22.04)
-
-1. Set up the ROS2 repository:
-
-```bash
-sudo apt update && sudo apt install curl gnupg lsb-release
-sudo curl -sSL https://raw.githubusercontent.com/ros/rosdistro/master/ros.key -o /usr/share/keyrings/ros-archive-keyring.gpg
-echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/ros-archive-keyring.gpg] http://packages.ros.org/ros2/ubuntu $(source /etc/os-release && echo $UBUNTU_CODENAME) main" | sudo tee /etc/apt/sources.list.d/ros2.list > /dev/null
-```
-
-2. Install ROS2 Humble:
-
-```bash
-sudo apt update
-sudo apt install ros-humble-desktop
-```
-
-3. Install additional ROS2 dependencies:
-
-```bash
-sudo apt install ros-humble-osrf-testing-tools-cpp ros-humble-test-msgs
-sudo apt install ros-humble-geometry-msgs ros-humble-visualization-msgs
-```
-
-4. Set up ROS2 environment:
-
-```bash
-echo "source /opt/ros/humble/setup.bash" >> ~/.bashrc
-source ~/.bashrc
-```
-
-#### Option 2: ROS2 Jazzy Jalisco (Ubuntu 24.04)
+This project is specifically designed for ROS2 Jazzy Jalisco on Ubuntu 24.04.
 
 1. Ubuntu 24.04 comes with ROS2 Jazzy Jalisco available in the standard repositories:
 
@@ -164,6 +128,7 @@ In the menuconfig interface:
 - Navigate to "Component config" → "micro-ROS Settings"
 - Configure the WiFi settings or Ethernet if needed
 - Configure the micro-ROS agent settings (IP and port)
+- Configure battery monitoring in "Weefee Quadruped Configuration" → "Battery Monitoring"
 - Save and exit
 
 3. Build and flash the firmware:
@@ -184,6 +149,7 @@ cd ~/weefee_project/ros2_ws
 2. Build the workspace:
 
 ```bash
+source /opt/ros/jazzy/setup.bash  # Ensure ROS2 Jazzy is sourced
 colcon build
 ```
 
@@ -200,7 +166,7 @@ source install/setup.bash
 The micro-ROS agent serves as a bridge between ROS 2 and the ESP32 microcontroller:
 
 ```bash
-# Use appropriate ROS2 distribution
+source /opt/ros/jazzy/setup.bash
 ros2 run micro_ros_agent micro_ros_agent udp4 --port 8888
 ```
 
@@ -212,13 +178,15 @@ Power on your quadruped robot or ESP32 development board. The ESP32 will:
 
 1. Connect to WiFi (if configured)
 2. Connect to the micro-ROS agent
-3. Initialize the servo motors
+3. Initialize the servo motors and battery monitoring system
 4. Wait for commands
 
 ### 3. Run the ROS2 Control Node
 
 ```bash
-ros2 run weefee_node servo_commander
+source /opt/ros/jazzy/setup.bash
+source install/setup.bash
+ros2 run weefee_node quadruped_kinematics_controller
 ```
 
 ### 4. Visualize with RViz (Optional)
@@ -226,6 +194,8 @@ ros2 run weefee_node servo_commander
 Start the visualization node:
 
 ```bash
+source /opt/ros/jazzy/setup.bash
+source install/setup.bash
 ros2 run weefee_node quadruped_visualizer
 ```
 
@@ -248,7 +218,7 @@ You can check if the robot is properly connected by:
 # List all topics
 ros2 topic list
 
-# Monitor status messages
+# Monitor status messages (including battery status)
 ros2 topic echo /robot_status
 
 # Send a test command
@@ -257,7 +227,7 @@ ros2 topic pub --once /robot_command std_msgs/msg/String "{data: 'stand'}"
 
 ## Next Steps
 
-- Learn about [the hardware setup](Hardware-Setup.md)
 - Explore [the ESP32 firmware](ESP32-Firmware.md)
 - Understand [the ROS2 control system](ROS2-Control.md)
 - Learn about [quadruped kinematics](Kinematics.md)
+- Configure [the battery monitoring system](Battery-Monitoring.md)
