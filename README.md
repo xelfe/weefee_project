@@ -2,7 +2,7 @@
 
 A complete quadruped robot control system built on ESP32 (using ESP-IDF v5.4.1 + micro-ROS) and ROS 2 Jazzy, featuring inverse kinematics, multiple gait patterns, and ROS2 visualization.
 
-![Quadruped Robot](https://i.imgur.com/example-placeholder.jpg)
+<img src="img/large_display_1.JPG" alt="Quadruped Robot" width="400"/>
 
 ## ✨ Key Features
 
