@@ -260,7 +260,7 @@ When the battery reaches a critical level, the robot will automatically:
 
 It is recommended to monitor these status messages in your application and implement appropriate handling for low battery conditions.
 
-For more detailed information about the battery monitoring system, see the [Battery Monitoring](Battery-Monitoring.md) documentation.
+For more detailed information about the battery monitoring system, see the [Battery Monitoring](Battery-Monitoring) documentation.
 
 ## Error Handling
 

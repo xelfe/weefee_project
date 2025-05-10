@@ -10,14 +10,14 @@ Weefee is a complete quadruped robot control system with advanced features inclu
 
 ## Wiki Contents
 
-* [Home](Home.md) - This page
-* [Getting Started](Getting-Started.md) - Installation and initial setup
-* [ESP32 Firmware](ESP32-Firmware.md) - Documentation for the ESP-IDF based firmware
-* [ROS2 Control](ROS2-Control.md) - Documentation for the ROS2 control nodes
-* [Kinematics](Kinematics.md) - Explanation of the inverse/forward kinematics implementation
-* [Gait Patterns](Gait-Patterns.md) - Description of implemented walking gaits
-* [Command Reference](Command-Reference.md) - Complete list of all robot commands
-* [Battery Monitoring](Battery-Monitoring.md) - Documentation for the battery monitoring system
+* [Home](Home) - This page
+* [Getting Started](Getting-Started) - Installation and initial setup
+* [ESP32 Firmware](ESP32-Firmware) - Documentation for the ESP-IDF based firmware
+* [ROS2 Control](ROS2-Control) - Documentation for the ROS2 control nodes
+* [Kinematics](Kinematics) - Explanation of the inverse/forward kinematics implementation
+* [Gait Patterns](Gait-Patterns) - Description of implemented walking gaits
+* [Command Reference](Command-Reference) - Complete list of all robot commands
+* [Battery Monitoring](Battery-Monitoring) - Documentation for the battery monitoring system
 
 ## Quick Links
 
