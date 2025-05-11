@@ -3,13 +3,13 @@ menu "Weefee Configuration"
     menu "micro-ROS Settings"
         config MICRO_ROS_APP_STACK
             int "Stack the micro-ROS app (Bytes)"
-            default 15000
+            default 16000
             help
                 Stack size in Bytes of the micro-ROS app
 
         config MICRO_ROS_APP_TASK_PRIO
             int "Priority of the micro-ROS app"
-            default 5
+            default 18
             help
                 Priority of micro-ros task higher value means higher priority
     endmenu
@@ -17,13 +17,13 @@ menu "Weefee Configuration"
     menu "Robot Physical Dimensions"
         config ROBOT_BODY_LENGTH
             int "Robot Body Length (mm)"
-            default 200
+            default 170
             help
                 Length of the robot body in millimeters.
 
         config ROBOT_BODY_WIDTH
             int "Robot Body Width (mm)"
-            default 120
+            default 80
             help
                 Width of the robot body in millimeters.
 
@@ -36,13 +36,13 @@ menu "Weefee Configuration"
 
             config DEFAULT_FEMUR_LENGTH
                 int "Default Femur Length (mm)"
-                default 70
+                default 50
                 help
                     Default length of the femur (second leg segment) in millimeters.
 
             config DEFAULT_TIBIA_LENGTH
                 int "Default Tibia Length (mm)"
-                default 100
+                default 60
                 help
                     Default length of the tibia (third leg segment) in millimeters.
         endmenu
@@ -75,21 +75,21 @@ menu "Weefee Configuration"
         menu "Front Right Leg Pins"
             config SERVO_PIN_0
                 int "Coxa Servo Pin"
-                default 2
+                default 16
                 range 0 33
                 help
                     GPIO pin number for Front Right leg coxa servo
 
             config SERVO_PIN_1
                 int "Femur Servo Pin"
-                default 4
+                default 18
                 range 0 33
                 help
                     GPIO pin number for Front Right leg femur servo
 
             config SERVO_PIN_2
                 int "Tibia Servo Pin" 
-                default 5
+                default 17
                 range 0 33
                 help
                     GPIO pin number for Front Right leg tibia servo
@@ -98,21 +98,21 @@ menu "Weefee Configuration"
         menu "Front Left Leg Pins"
             config SERVO_PIN_3
                 int "Coxa Servo Pin"
-                default 12
+                default 25
                 range 0 33
                 help
                     GPIO pin number for Front Left leg coxa servo
 
             config SERVO_PIN_4
                 int "Femur Servo Pin"
-                default 13
+                default 26
                 range 0 33
                 help
                     GPIO pin number for Front Left leg femur servo
 
             config SERVO_PIN_5
                 int "Tibia Servo Pin"
-                default 14
+                default 27
                 range 0 33
                 help
                     GPIO pin number for Front Left leg tibia servo
@@ -121,21 +121,21 @@ menu "Weefee Configuration"
         menu "Rear Right Leg Pins"
             config SERVO_PIN_6
                 int "Coxa Servo Pin"
-                default 15
+                default 4
                 range 0 33
                 help
                     GPIO pin number for Rear Right leg coxa servo
 
             config SERVO_PIN_7
                 int "Femur Servo Pin"
-                default 16
+                default 2
                 range 0 33
                 help
                     GPIO pin number for Rear Right leg femur servo
 
             config SERVO_PIN_8
                 int "Tibia Servo Pin"
-                default 17
+                default 15
                 range 0 33
                 help
                     GPIO pin number for Rear Right leg tibia servo
@@ -144,21 +144,21 @@ menu "Weefee Configuration"
         menu "Rear Left Leg Pins"
             config SERVO_PIN_9
                 int "Coxa Servo Pin"
-                default 18
+                default 13
                 range 0 33
                 help
                     GPIO pin number for Rear Left leg coxa servo
 
             config SERVO_PIN_10
                 int "Femur Servo Pin"
-                default 19
+                default 12
                 range 0 33
                 help
                     GPIO pin number for Rear Left leg femur servo
 
             config SERVO_PIN_11
                 int "Tibia Servo Pin"
-                default 21
+                default 14
                 range 0 33
                 help
                     GPIO pin number for Rear Left leg tibia servo

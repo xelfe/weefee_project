@@ -104,6 +104,10 @@ static void battery_monitor_task(void *pvParameters);
 
 /**
  * @brief Initialize the battery monitor with INA219 sensor
+ * @param sda_pin I2C SDA pin number
+ * @param scl_pin I2C SCL pin number
+ * @param i2c_freq_hz I2C clock frequency in Hz
+ * @return ESP_OK if initialization successful, error code otherwise
  */
 esp_err_t battery_monitor_init(int sda_pin, int scl_pin, uint32_t i2c_freq_hz) {
 #ifndef CONFIG_BAT_MONITOR_ENABLED
@@ -162,7 +166,9 @@ esp_err_t battery_monitor_init(int sda_pin, int scl_pin, uint32_t i2c_freq_hz) {
     battery_state.initialized = true;
     battery_state.info[0].status = BATTERY_UNKNOWN;
 
+#ifdef CONFIG_DEBUG_LOGS_ENABLED
     ESP_LOGI(TAG, "Battery monitor initialized successfully");
+#endif
     return ESP_OK;
 #endif
 }
@@ -323,7 +329,7 @@ battery_status_t battery_monitor_get_status(void) {
 /**
  * @brief Start battery monitoring task
  */
-esp_err_t battery_monitor_start(uint32_t interval_ms) {
+esp_err_t battery_monitor_start_task(uint32_t update_interval_ms) {
 #ifndef CONFIG_BAT_MONITOR_ENABLED
     return ESP_ERR_NOT_SUPPORTED;
 #else
@@ -338,12 +344,12 @@ esp_err_t battery_monitor_start(uint32_t interval_ms) {
     }
 
     // Create battery monitoring task
-    ESP_LOGI(TAG, "Starting battery monitoring task (interval: %lu ms)", interval_ms);
+    ESP_LOGI(TAG, "Starting battery monitoring task (interval: %lu ms)", update_interval_ms);
     BaseType_t ret = xTaskCreate(
         battery_monitor_task,
         "battery_mon",
         2048,  // Stack size
-        (void*)interval_ms,
+        (void*)update_interval_ms,
         3,     // Priority
         &battery_state.task_handle
     );

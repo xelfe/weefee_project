@@ -35,6 +35,7 @@
 #include "driver/ledc.h"
 #include "nvs_flash.h"
 #include "nvs.h"
+#include "esp_wifi.h"  // WiFi header for Bluetooth disabling
 
 // Includes for quadruped robot
 #include "servo_controller.h"
@@ -77,9 +78,14 @@ static bool g_robot_calibrated = false;
 #define MAX_INIT_ATTEMPTS 5
 #define INIT_ATTEMPT_DELAY_MS 500
 #define TOPIC_SWITCH_DELAY_MS 1000
-#define PING_TIMEOUT_MS 500
+#define PING_TIMEOUT_MS 2000  // Increased from 500ms to 2000ms for better stability
 #define MESSAGE_BUFFER_SIZE 512  // Increased from 256
 #define STATUS_BUFFER_SIZE 128   // Increased from 100
+
+// Rate limiting parameters - new
+#define RATE_LIMIT_INTERVAL_MS 100  // Minimum interval between messages of the same type
+#define POSE_UPDATE_THRESHOLD 0.5f  // Minimum change (in mm) to send a position update
+#define ORIENTATION_UPDATE_THRESHOLD 0.5f  // Minimum change (in degrees) to send an orientation update
 
 // Command prefixes for differentiating command types
 #define CMD_PREFIX_SERVO "servo:"
@@ -337,7 +343,8 @@ static void cleanup_messages(microros_context_t *ctx) {
  */
 static bool check_agent_connection(void) {
     #ifdef CONFIG_MICRO_ROS_ESP_XRCE_DDS_MIDDLEWARE
-    bool connected = rmw_uros_ping_agent(PING_TIMEOUT_MS, 1); // Reduced to a single attempt for periodic checking
+    // Increase the number of attempts for initial connection
+    bool connected = rmw_uros_ping_agent(PING_TIMEOUT_MS, 3); // Increased to 3 attempts
     if (!connected) {
         // Don't display warning for each periodic check (will be displayed when a disconnection is detected)
         LOG_DEBUG(TAG, "Agent not responding to ping");
@@ -366,7 +373,7 @@ static bool init_subscription(rcl_subscription_t *sub,
     for (int attempt = 1; attempt <= MAX_INIT_ATTEMPTS; attempt++) {
         // Use best_effort instead of default to improve responsiveness
         rcl_ret_t rc = rclc_subscription_init_best_effort(
-            sub, node, type_support, topic_name);
+            sub, (rcl_node_t*)node, type_support, topic_name);
             
         if (rc == RCL_RET_OK) {
             ESP_LOGI(TAG, "Successfully initialized subscription: %s", topic_name);
@@ -422,6 +429,25 @@ static bool init_publisher(rcl_publisher_t *pub,
  * @param status The status message to publish
  */
 static void publish_status(microros_context_t *ctx, const char *status) {
+    static char last_status[STATUS_BUFFER_SIZE] = "";
+    static uint32_t last_status_time = 0;
+    uint32_t now = xTaskGetTickCount() * portTICK_PERIOD_MS;
+    
+    // Check if it's the same message and if it was sent recently
+    // Exception: critical messages are not rate-limited
+    bool is_critical = strstr(status, "CRITICAL") != NULL;
+    
+    if (!is_critical && strcmp(status, last_status) == 0 && 
+        (now - last_status_time < RATE_LIMIT_INTERVAL_MS)) {
+        LOG_DEBUG(TAG, "Skipping duplicate status message (rate limited): %s", status);
+        return;
+    }
+    
+    // Update the last message and timestamp
+    strncpy(last_status, status, STATUS_BUFFER_SIZE - 1);
+    last_status[STATUS_BUFFER_SIZE - 1] = '\0';
+    last_status_time = now;
+    
     // Check if ROS is initialized
     if (ctx->status_pub.impl == NULL) {
         ESP_LOGW(TAG, "Cannot publish status '%s': ROS publisher not initialized", status);
@@ -616,11 +642,22 @@ static void process_calibrate_command(void) {
  */
 static void pose_callback(const void *msgin) {
     const geometry_msgs__msg__Pose *msg = (const geometry_msgs__msg__Pose *)msgin;
+    static vec3_t last_position = {0};
+    static orientation_t last_orientation = {0};
+    static uint32_t last_pose_update_time = 0;
+    uint32_t now = xTaskGetTickCount() * portTICK_PERIOD_MS;
+    
+    // Rate limiting - do not process updates too frequently
+    if (now - last_pose_update_time < RATE_LIMIT_INTERVAL_MS) {
+        LOG_DEBUG(TAG, "Skipping pose update (rate limited)");
+        return;
+    }
     
     // Extract position
-    temp_position.x = msg->position.x * 1000.0f; // Convert from m to mm
-    temp_position.y = msg->position.y * 1000.0f;
-    temp_position.z = msg->position.z * 1000.0f;
+    vec3_t new_position;
+    new_position.x = msg->position.x * 1000.0f; // Convert from m to mm
+    new_position.y = msg->position.y * 1000.0f;
+    new_position.z = msg->position.z * 1000.0f;
     
     // Extract orientation (quaternion -> euler conversion)
     float qx = msg->orientation.x;
@@ -629,17 +666,43 @@ static void pose_callback(const void *msgin) {
     float qw = msg->orientation.w;
     
     // Quaternion to Euler angles conversion
-    temp_orientation.roll = atan2f(2.0f * (qw * qx + qy * qz), 1.0f - 2.0f * (qx * qx + qy * qy)) * 180.0f / M_PI;
-    temp_orientation.pitch = asinf(2.0f * (qw * qy - qz * qx)) * 180.0f / M_PI;
-    temp_orientation.yaw = atan2f(2.0f * (qw * qz + qx * qy), 1.0f - 2.0f * (qy * qy + qz * qz)) * 180.0f / M_PI;
+    orientation_t new_orientation;
+    new_orientation.roll = atan2f(2.0f * (qw * qx + qy * qz), 1.0f - 2.0f * (qx * qx + qy * qy)) * 180.0f / M_PI;
+    new_orientation.pitch = asinf(2.0f * (qw * qy - qz * qx)) * 180.0f / M_PI;
+    new_orientation.yaw = atan2f(2.0f * (qw * qz + qx * qy), 1.0f - 2.0f * (qy * qy + qz * qz)) * 180.0f / M_PI;
     
-    // Apply position to robot body
-    robot_set_body_position(&temp_position);
-    robot_set_body_orientation(&temp_orientation);
+    // Filtering to avoid insignificant micro-updates
+    bool position_changed = 
+        fabsf(new_position.x - last_position.x) > POSE_UPDATE_THRESHOLD ||
+        fabsf(new_position.y - last_position.y) > POSE_UPDATE_THRESHOLD ||
+        fabsf(new_position.z - last_position.z) > POSE_UPDATE_THRESHOLD;
+        
+    bool orientation_changed =
+        fabsf(new_orientation.roll - last_orientation.roll) > ORIENTATION_UPDATE_THRESHOLD ||
+        fabsf(new_orientation.pitch - last_orientation.pitch) > ORIENTATION_UPDATE_THRESHOLD ||
+        fabsf(new_orientation.yaw - last_orientation.yaw) > ORIENTATION_UPDATE_THRESHOLD;
     
-    ESP_LOGI(TAG, "Applied robot pose: pos=[%.2f, %.2f, %.2f], ori=[%.2f, %.2f, %.2f]",
-             temp_position.x, temp_position.y, temp_position.z,
-             temp_orientation.roll, temp_orientation.pitch, temp_orientation.yaw);
+    // Only update if the pose has changed significantly
+    if (position_changed || orientation_changed) {
+        // Update temporary values
+        temp_position = new_position;
+        temp_orientation = new_orientation;
+        
+        // Update last known values
+        last_position = new_position;
+        last_orientation = new_orientation;
+        last_pose_update_time = now;
+        
+        // Apply to robot
+        robot_set_body_position(&temp_position);
+        robot_set_body_orientation(&temp_orientation);
+        
+        LOG_DEBUG(TAG, "Applied robot pose: pos=[%.2f, %.2f, %.2f], ori=[%.2f, %.2f, %.2f]",
+                 temp_position.x, temp_position.y, temp_position.z,
+                 temp_orientation.roll, temp_orientation.pitch, temp_orientation.yaw);
+    } else {
+        LOG_DEBUG(TAG, "Skipping pose update (no significant change)");
+    }
 }
 
 /**
@@ -882,13 +945,15 @@ static void micro_ros_task(void *arg) {
         return;
     }
 
-    // Publish an initial battery status message to test ROS connectivity
-    ESP_LOGI(TAG, "Publishing initial battery status message to test ROS connectivity");
-    
     // Allow some time for the publisher to fully initialize
     vTaskDelay(pdMS_TO_TICKS(1000));
     
+#ifdef CONFIG_DEBUG_LOGS_ENABLED
+    // Publish an initial battery status message to test ROS connectivity (only in debug mode)
+    ESP_LOGI(TAG, "Publishing initial battery status message to test ROS connectivity");
+    
     // Get current battery info for the initial message
+#ifdef CONFIG_BAT_MONITOR_ENABLED
     battery_info_t battery_info;
     if (battery_monitor_read(&battery_info) == ESP_OK) {
         char status_buf[STATUS_BUFFER_SIZE];
@@ -898,9 +963,14 @@ static void micro_ros_task(void *arg) {
         publish_status(&g_microros_ctx, status_buf);
         LOG_DEBUG(TAG, "Initial battery status message sent: %s", status_buf);
     } else {
-        publish_status(&g_microros_ctx, "ROS connectivity test: battery monitor initialized");
-        LOG_DEBUG(TAG, "Sent test message to robot_status topic");
+        publish_status(&g_microros_ctx, "ROS connectivity test: battery monitoring active but read failed");
+        LOG_DEBUG(TAG, "Sent battery monitoring test message to robot_status topic");
     }
+#else
+    publish_status(&g_microros_ctx, "ROS connectivity test: system initialized (battery monitoring disabled)");
+    LOG_DEBUG(TAG, "Sent test message to robot_status topic");
+#endif
+#endif // CONFIG_DEBUG_LOGS_ENABLED
 
     // Variables for checking connection health
     uint32_t last_connection_check = 0;
@@ -923,23 +993,25 @@ static void micro_ros_task(void *arg) {
             // Test ping without generating error messages for periodic monitoring
             bool is_connected = rmw_uros_ping_agent(PING_TIMEOUT_MS, 1);
             
-            if (!is_connected && was_connected) {
-                // Instead of displaying an error message, we just log informational status
-                LOG_DEBUG(TAG, "Testing connection to micro-ROS agent: waiting for response");
+            if (!is_connected) {
+                // Double the sleep duration, up to the maximum
+                sleep_duration_us = sleep_duration_us * 2;
+                if (sleep_duration_us > MAX_SLEEP_DURATION_US) {
+                    sleep_duration_us = MAX_SLEEP_DURATION_US;
+                }
+                // Use DEBUG_LOG instead of WARNING to avoid too frequent messages
+                LOG_DEBUG(TAG, "Increasing task sleep to %lu us due to micro-ROS agent connection issue", sleep_duration_us);
                 
-                // Force a reconnection with more attempts in case of a real problem
-                is_connected = rmw_uros_ping_agent(PING_TIMEOUT_MS * 2, 3);
+                // Counter to reduce error message frequency
+                static uint32_t error_message_count = 0;
+                static uint32_t last_error_time = 0;
                 
-                if (!is_connected) {
-                    ESP_LOGW(TAG, "micro-ROS agent not responding, check network connection");
-                    
-                    // Implement exponential backoff to reduce CPU usage during disconnection
-                    // Double the sleep duration, up to the maximum
-                    sleep_duration_us = sleep_duration_us * 2;
-                    if (sleep_duration_us > MAX_SLEEP_DURATION_US) {
-                        sleep_duration_us = MAX_SLEEP_DURATION_US;
-                    }
-                    ESP_LOGW(TAG, "Increasing task sleep to %lu us to reduce CPU load", sleep_duration_us);
+                // Display the message only once every 60 seconds
+                if (now - last_error_time > 60000 || error_message_count == 0) {
+                    // Use LOG_DEBUG instead of ESP_LOGW for a less alarming message
+                    LOG_DEBUG(TAG, "micro-ROS agent connectivity check - retrying connection");
+                    last_error_time = now;
+                    error_message_count++;
                 }
             } else if (is_connected && !was_connected) {
                 // Successful reconnection
@@ -987,6 +1059,23 @@ void app_main(void) {
     ESP_ERROR_CHECK(ret);
     ESP_LOGI(TAG, "NVS initialized");
     
+#if defined(CONFIG_MICRO_ROS_ESP_NETIF_WLAN)
+    // Disable Bluetooth via ESP CONFIG component
+    #include "sdkconfig.h"
+    ESP_LOGI(TAG, "WiFi in exclusive mode (without Bluetooth)");
+    
+    // Force the system to prioritize WiFi tasks
+    #if CONFIG_ESP32_WIFI_SW_COEXIST_ENABLE
+    ESP_LOGI(TAG, "WiFi/BT software coexistence is enabled - disabling it might improve performance");
+    #endif
+    
+    // WiFi configuration for maximum stability
+    #include "esp_wifi.h"
+    esp_wifi_set_ps(WIFI_PS_NONE);  // Disable power saving mode to improve reliability
+    
+    vTaskDelay(pdMS_TO_TICKS(200)); // Time for changes to take effect
+#endif
+    
     // Initialize robot hardware
     robot_init();
     
@@ -1002,13 +1091,13 @@ void app_main(void) {
 #ifdef CONFIG_BAT_MONITOR_ENABLED
     ESP_LOGI(TAG, "Initializing battery monitor...");
     // Use the pins defined in configuration
-    esp_err_t ret = battery_monitor_init(
+    esp_err_t bat_ret = battery_monitor_init(
         CONFIG_BAT_MONITOR_SDA_PIN,
         CONFIG_BAT_MONITOR_SCL_PIN,
         CONFIG_BAT_MONITOR_I2C_FREQ
     );
     
-    if (ret == ESP_OK) {
+    if (bat_ret == ESP_OK) {
         // The battery thresholds are now calculated automatically based on cell configuration
         // No need to manually set them unless you want to override the default values
         ESP_LOGI(TAG, "Battery monitoring started with %d LiPo cells", CONFIG_BAT_MONITOR_CELL_COUNT);
@@ -1020,7 +1109,7 @@ void app_main(void) {
         
         // DO NOT try to publish status messages here - ROS isn't initialized yet
     } else {
-        ESP_LOGE(TAG, "Failed to initialize battery monitor: %s", esp_err_to_name(ret));
+        ESP_LOGE(TAG, "Failed to initialize battery monitor: %s", esp_err_to_name(bat_ret));
     }
 #endif
 
