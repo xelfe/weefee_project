@@ -28,11 +28,11 @@
 #include "geometry_msgs/msg/pose.hpp"
 #include "visualization_msgs/msg/marker_array.hpp"
 #include "quadruped_inverse_kinematics.h"
-#include <cmath>
 #include <vector>
 #include <string>
 
 using namespace std::chrono_literals;
+using namespace weefee;
 
 /**
  * @brief QuadrupedVisualizer - Provides ROS2 visualization of the quadruped robot
@@ -55,7 +55,7 @@ public:
             "robot_command", 10, std::bind(&QuadrupedVisualizer::command_callback, this, std::placeholders::_1));
         
         body_pose_sub_ = this->create_subscription<geometry_msgs::msg::Pose>(
-            "body_pose", 10, std::bind(&QuadrupedVisualizer::body_pose_callback, this, std::placeholders::_1));
+            "robot_pose", 10, std::bind(&QuadrupedVisualizer::body_pose_callback, this, std::placeholders::_1));
         
         servo_sub_ = this->create_subscription<std_msgs::msg::Int32MultiArray>(
             "servo_angles", 10, std::bind(&QuadrupedVisualizer::servo_callback, this, std::placeholders::_1));
@@ -308,7 +308,7 @@ private:
     // Robot state
     std::string current_state_;
     Vec3 body_position_;
-    struct { float roll; float pitch; float yaw; } body_orientation_;
+    Orientation body_orientation_;
     float walk_speed_ = 1.0f;
     
     // Kinematics engine

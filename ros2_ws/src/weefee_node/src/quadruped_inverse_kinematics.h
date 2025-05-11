@@ -24,8 +24,8 @@
 
 #include "rclcpp/rclcpp.hpp"
 #include "std_msgs/msg/string.hpp"
-#include <cmath>
 #include <string>
+#include "quadruped_common.h"
 
 /**
  * @brief Implementation of quadruped robot inverse kinematics functions
@@ -34,46 +34,8 @@
  * which is essential for controlling the movement of a quadruped robot.
  */
 
-// Constants for leg identification
-#define LEG_FRONT_RIGHT   0
-#define LEG_FRONT_LEFT    1
-#define LEG_REAR_RIGHT    2
-#define LEG_REAR_LEFT     3
-#define LEG_COUNT         4
-
-// Constants for joint identification
-#define JOINT_COXA    0
-#define JOINT_FEMUR   1
-#define JOINT_TIBIA   2
-#define JOINT_COUNT   3
-
-/**
- * @brief 3D Vector structure - represents positions in 3D space
- */
-struct Vec3 {
-    float x = 0.0f;
-    float y = 0.0f;
-    float z = 0.0f;
-};
-
-/**
- * @brief Leg structure - represents a single robot leg with its dimensions and state
- */
-struct Leg {
-    // Joint angles in degrees
-    float angles[3] = {90.0f, 90.0f, 90.0f};
-    
-    // Mounting position relative to body center
-    Vec3 mounting_position;
-    
-    // Current foot position
-    Vec3 foot_position;
-    
-    // Leg dimensions
-    float coxa_length = 30.0f;
-    float femur_length = 70.0f;
-    float tibia_length = 90.0f;
-};
+// Use namespace for common structures
+using namespace weefee;
 
 /**
  * @brief QuadrupedInverseKinematics - Provides inverse & forward kinematics for quadruped robots
@@ -221,7 +183,7 @@ public:
         // Convert angles to radians
         float coxa_rad = angles[JOINT_COXA] * M_PI / 180.0f;
         float femur_rad = angles[JOINT_FEMUR] * M_PI / 180.0f;
-        float tibia_rad = angles[JOINT_TIBIA] * M_PI / 180.0f;
+        // Tibia angle is used in calculation below with tibia_rad_adjusted
         
         // Position after coxa rotation
         float x_coxa = leg.coxa_length * cosf(coxa_rad);

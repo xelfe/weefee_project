@@ -31,46 +31,9 @@
 #include <iostream>
 #include <vector>
 #include <string>
-#include <cmath>
 
 using namespace std::chrono_literals;
-
-/**
- * @brief 3D Vector structure - represents positions in 3D space
- */
-struct Vec3 {
-    float x = 0.0f;
-    float y = 0.0f;
-    float z = 0.0f;
-};
-
-/**
- * @brief Orientation structure - represents orientation in Euler angles
- */
-struct Orientation {
-    float roll = 0.0f;
-    float pitch = 0.0f;
-    float yaw = 0.0f;
-};
-
-/**
- * @brief Leg structure - represents a single robot leg with its joints
- */
-struct Leg {
-    // Joint angles in degrees
-    float angles[3] = {90.0f, 90.0f, 90.0f};
-    
-    // Mounting position relative to body center
-    Vec3 mounting_position;
-    
-    // Current foot position
-    Vec3 foot_position;
-    
-    // Leg dimensions
-    float coxa_length = 30.0f;
-    float femur_length = 70.0f;
-    float tibia_length = 90.0f;
-};
+using namespace weefee;
 
 /**
  * @brief QuadrupedKinematicsController - Advanced ROS2 node for quadruped control
@@ -90,7 +53,7 @@ public:
         
         // Subscribers
         body_pose_sub_ = this->create_subscription<geometry_msgs::msg::Pose>(
-            "body_pose", 10, std::bind(&QuadrupedKinematicsController::body_pose_callback, this, std::placeholders::_1));
+            "robot_pose", 10, std::bind(&QuadrupedKinematicsController::body_pose_callback, this, std::placeholders::_1));
         
         gait_control_sub_ = this->create_subscription<std_msgs::msg::String>(
             "gait_control", 10, std::bind(&QuadrupedKinematicsController::gait_control_callback, this, std::placeholders::_1));
