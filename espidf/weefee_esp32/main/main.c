@@ -39,7 +39,6 @@
 
 // Includes for quadruped robot
 #include "servo_controller.h"
-#include "quadruped_kinematics.h"
 #include "quadruped_robot.h"
 #include "battery_monitor.h"
 

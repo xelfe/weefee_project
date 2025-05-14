@@ -29,7 +29,6 @@
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "quadruped_robot.h"
-#include "quadruped_kinematics.h"
 #include "servo_controller.h"
 #include "sdkconfig.h"
 
@@ -56,6 +55,19 @@ static const int servo_mapping[LEG_COUNT][JOINT_COUNT] = {
 // Forward declarations
 static void robot_update_with_flag(bool positions_changed);
 
+// Replacement for init_kinematics (empty function as it's no longer needed)
+static void robot_init_kinematics(void) {
+    ESP_LOGI(TAG, "Kinematics initialized (stub - calculations done by ROS2)");
+}
+
+// Replacement for set_robot_dimensions
+static void robot_set_dimensions(int body_length, int body_width, 
+                                int coxa_length, int femur_length, int tibia_length) {
+    ESP_LOGI(TAG, "Robot dimensions set: body=%dx%d mm, coxa=%d mm, femur=%d mm, tibia=%d mm",
+             body_length, body_width, coxa_length, femur_length, tibia_length);
+    // We only log the dimensions now, as all calculations are done by ROS2
+}
+
 // Robot initialization
 void robot_init(void) {
     ESP_LOGI(TAG, "Initializing quadruped robot");
@@ -64,7 +76,7 @@ void robot_init(void) {
     setup_servos();
     
     // Initialize kinematics
-    init_kinematics();
+    robot_init_kinematics();
     
     // Robot dimensions are now configured through menuconfig (as integers in millimeters)
     int body_length = CONFIG_ROBOT_BODY_LENGTH;
@@ -73,8 +85,7 @@ void robot_init(void) {
     int femur_length = CONFIG_DEFAULT_FEMUR_LENGTH;
     int tibia_length = CONFIG_DEFAULT_TIBIA_LENGTH;
     
-    // Configure kinematics dimensions (keeping values in millimeters)
-    set_robot_dimensions(body_length, body_width, coxa_length, femur_length, tibia_length);
+    // Log robot dimensions (calculations now done by ROS2)
     
     // Initialize legs
     // Leg mounting positions relative to body center (in millimeters)
@@ -247,7 +258,7 @@ esp_err_t robot_set_leg_position(int leg_index, const vec3_t *position) {
     // since that's now handled by ROS2
     robot.legs[leg_index].foot_position = *position;
     
-    // Note: We're not calling inverse_kinematics or updating angles here anymore
+    // Note: We're not calculating leg angles locally anymore as this is handled by ROS2
     // Those values will be received directly from ROS2 via servo_angles_callback
     ESP_LOGD(TAG, "Leg %d target position set to [%.2f, %.2f, %.2f] (angles will be set by ROS2)",
              leg_index, position->x, position->y, position->z);

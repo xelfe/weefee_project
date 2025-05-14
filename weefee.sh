@@ -88,7 +88,7 @@ launch_components() {
     source_ros2
     
     echo -e "${YELLOW}Starting micro-ROS agent...${NC}"
-    screen -dmS $AGENT_SCREEN bash -c "source $MICROROS_WS/install/setup.bash && ros2 run micro_ros_agent micro_ros_agent serial --dev $ESP_PORT -v6; exec bash"
+    screen -dmS $AGENT_SCREEN bash -c "source $MICROROS_WS/install/setup.bash && ros2 run micro_ros_agent micro_ros_agent udp4 --port 8888 -v6; exec bash"
     sleep 2
     
     echo -e "${YELLOW}Starting servo controller...${NC}"
@@ -115,6 +115,12 @@ launch_components() {
 stop_components() {
     display_header "STOPPING WEEFEE COMPONENTS"
     
+    # In stop_components() function, add:
+    if screen -list | grep -q "weefee_rviz"; then
+        screen -S weefee_rviz -X quit
+        echo -e "${GREEN}RViz screen session terminated.${NC}"
+    fi
+      
     # Check if the sessions exist and terminate them
     if screen -list | grep -q "$AGENT_SCREEN"; then
         screen -S $AGENT_SCREEN -X quit
@@ -163,6 +169,20 @@ kill_process() {
             kill -9 $pid 2>/dev/null
         fi
     fi
+}
+
+# Launch RViz for visualization
+launch_rviz() {
+    display_header "LAUNCHING RVIZ VISUALIZATION"
+    
+    # Source ROS2 environment
+    source_ros2
+    
+    echo -e "${YELLOW}Starting RViz with quadruped configuration...${NC}"
+    screen -dmS weefee_rviz bash -c "source /opt/ros/jazzy/setup.bash && source $ROS2_WS/install/setup.bash && ros2 run rviz2 rviz2 -d $ROS2_WS/src/weefee_node/config/quadruped.rviz; exec bash"
+    
+    echo -e "${GREEN}RViz started successfully.${NC}"
+    echo -e "To view RViz screen session: ${GREEN}screen -r weefee_rviz${NC}"
 }
 
 # Flash ESP32
@@ -515,6 +535,9 @@ main() {
     case "$command" in
         "launch")
             launch_components
+            ;;
+        "rviz")
+            launch_rviz
             ;;
         "stop")
             stop_components
