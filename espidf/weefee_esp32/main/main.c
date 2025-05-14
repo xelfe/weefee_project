@@ -370,6 +370,28 @@ static bool init_subscription(rcl_subscription_t *sub,
                               const rosidl_message_type_support_t *type_support,
                               const char *topic_name) {
     
+    // Check parameters
+    if (sub == NULL || node == NULL || type_support == NULL || topic_name == NULL) {
+        ESP_LOGE(TAG, "Invalid parameters to init_subscription");
+        return false;
+    }
+    
+    // Check if node is valid
+    if (!rcl_node_is_valid(node)) {
+        ESP_LOGE(TAG, "Node is invalid in init_subscription for %s", topic_name);
+        return false;
+    }
+    
+    // Log relevant information for debugging
+    ESP_LOGI(TAG, "Initializing subscription: %s", topic_name);
+    
+    // Initialize the subscription object
+    *sub = rcl_get_zero_initialized_subscription();
+    
+    // Log memory usage before attempting initialization
+    ESP_LOGI(TAG, "Free heap before subscription init for %s: %lu bytes", 
+             topic_name, esp_get_free_heap_size());
+    
     for (int attempt = 1; attempt <= MAX_INIT_ATTEMPTS; attempt++) {
         // Use best_effort instead of default to improve responsiveness
         rcl_ret_t rc = rclc_subscription_init_best_effort(
@@ -377,6 +399,18 @@ static bool init_subscription(rcl_subscription_t *sub,
             
         if (rc == RCL_RET_OK) {
             ESP_LOGI(TAG, "Successfully initialized subscription: %s", topic_name);
+            
+            // Verify the subscription is valid with enhanced logging
+            if (rcl_subscription_is_valid(sub)) {
+                ESP_LOGI(TAG, "Subscription is valid: %s", topic_name);
+                ESP_LOGI(TAG, "Subscription topic name: %s", rcl_subscription_get_topic_name(sub));
+                ESP_LOGI(TAG, "Free heap after subscription init for %s: %lu bytes", 
+                         topic_name, esp_get_free_heap_size());
+            } else {
+                ESP_LOGW(TAG, "Subscription is NOT valid after initialization: %s",
+                         topic_name);
+            }
+            
             return true;
         } else {
             ESP_LOGW(TAG, "Failed to initialize subscription %s (attempt %d/%d, error: %ld)",
@@ -739,6 +773,39 @@ static void command_callback(const void *msgin) {
         return;
     }
     
+    // SPECIAL CASE: If this is a direct servo angles command without prefix
+    // Format: "90,90,90,90,90,90,90,90,90,90,90,90"
+    // This logic is kept for backward compatibility with any direct servo commands
+    // but they should now come through robot_command topic with proper prefix
+    if (command[0] >= '0' && command[0] <= '9' && strstr(command, ",") != NULL) {
+        ESP_LOGI(TAG, "Detected direct servo angles command format in robot_command");
+        
+        if (g_robot_calibrated) {
+            // Make sure we don't overflow the buffer
+            size_t prefix_len = strlen(CMD_PREFIX_SERVO);
+            size_t cmd_len = strlen(command);
+            size_t total_len = prefix_len + cmd_len;
+            
+            if (total_len < MESSAGE_BUFFER_SIZE - 1) {
+                char prefixed_command[MESSAGE_BUFFER_SIZE] = {0};
+                memcpy(prefixed_command, CMD_PREFIX_SERVO, prefix_len);
+                memcpy(prefixed_command + prefix_len, command, cmd_len);
+                prefixed_command[total_len] = '\0';
+                
+                ESP_LOGI(TAG, "Converting to servo command format: %s", prefixed_command);
+                process_servo_command(prefixed_command);
+            } else {
+                ESP_LOGW(TAG, "Command too long to convert to servo command format");
+                publish_status(&g_microros_ctx, "ERROR: Command too long");
+            }
+            return;
+        } else {
+            ESP_LOGW(TAG, "Raw servo angles command blocked because robot is not calibrated!");
+            publish_status(&g_microros_ctx, "ERROR: Robot not calibrated! Send 'calibrate' command first.");
+            return;
+        }
+    }
+    
     // Block movement commands if not calibrated
     if (!g_robot_calibrated) {
         // Only specific commands are allowed when not calibrated
@@ -802,6 +869,8 @@ static void command_callback(const void *msgin) {
     }
 }
 
+// Removed servo_angles_callback as it's no longer needed
+
 /**
  * @brief Initialize micro-ROS communication
  * @param ctx Pointer to microros_context_t structure to initialize
@@ -857,7 +926,13 @@ static bool init_microros(microros_context_t *ctx) {
 
     // Create node
     RCCHECK(rclc_node_init_default(&ctx->node, "weefee_servo_controller", "", &ctx->support));
-    ESP_LOGI(TAG, "Node initialized");
+    
+    // Verify node initialized properly
+    if (!rcl_node_is_valid(&ctx->node)) {
+        ESP_LOGE(TAG, "Node initialization failed - node is invalid");
+        return false;
+    }
+    ESP_LOGI(TAG, "Node initialized and verified as valid");
     
     // Initialize messages
     ESP_LOGI(TAG, "Initializing message structures");
@@ -865,6 +940,7 @@ static bool init_microros(microros_context_t *ctx) {
     vTaskDelay(pdMS_TO_TICKS(TOPIC_SWITCH_DELAY_MS));
     
     // Initialize subscriptions and publishers with longer delays between initializations
+    ctx->command_sub = rcl_get_zero_initialized_subscription();
     if (!init_subscription(
             &ctx->command_sub,
             &ctx->node,
@@ -874,6 +950,7 @@ static bool init_microros(microros_context_t *ctx) {
     }
     vTaskDelay(pdMS_TO_TICKS(TOPIC_SWITCH_DELAY_MS * 2));  // Longer delay
     
+    ctx->pose_sub = rcl_get_zero_initialized_subscription();
     if (!init_subscription(
             &ctx->pose_sub,
             &ctx->node,
@@ -883,6 +960,12 @@ static bool init_microros(microros_context_t *ctx) {
     }
     vTaskDelay(pdMS_TO_TICKS(TOPIC_SWITCH_DELAY_MS * 2));  // Longer delay
     
+    // Servo_angles subscription is no longer needed since we use robot_command topic
+    ESP_LOGI(TAG, "Skipping initialization of servo_angles subscription as it's no longer needed");
+    
+    vTaskDelay(pdMS_TO_TICKS(TOPIC_SWITCH_DELAY_MS * 2));  // Longer delay
+    
+    ctx->status_pub = rcl_get_zero_initialized_publisher();
     if (!init_publisher(
             &ctx->status_pub,
             &ctx->node,
@@ -892,7 +975,7 @@ static bool init_microros(microros_context_t *ctx) {
     }
     vTaskDelay(pdMS_TO_TICKS(TOPIC_SWITCH_DELAY_MS * 2));  // Longer delay after the last endpoint
 
-    // Important: executor with explicit capacity of 3
+    // Important: executor with explicit capacity of 3 (reduced from 4 since servo_angles isn't needed anymore)
     ESP_LOGI(TAG, "Initializing executor with capacity 3");
     RCCHECK(rclc_executor_init(&ctx->executor, &ctx->support.context, 3, &allocator));
     
@@ -905,6 +988,10 @@ static bool init_microros(microros_context_t *ctx) {
     RCCHECK(rclc_executor_add_subscription(
         &ctx->executor, &ctx->pose_sub, &ctx->pose_msg,
         &pose_callback, ON_NEW_DATA));
+    vTaskDelay(pdMS_TO_TICKS(500));  // Small delay between each addition
+    
+    // Servo_angles subscription is no longer needed, skipping the addition to executor
+    ESP_LOGI(TAG, "Skipping servo_angles subscription - now using only robot_command topic");
 
     // Give the system time to fully initialize
     vTaskDelay(pdMS_TO_TICKS(1000));
