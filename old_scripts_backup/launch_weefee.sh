@@ -9,7 +9,12 @@
 #   ./launch_weefee.sh         - Start all components
 #   ./launch_weefee.sh stop    - Stop all components
 #   ./launch_weefee.sh restart - Restart all components
-#   ./launch_weefee.sh flash   - Compile and flash the ESP32 firmware
+#   ./launch_weefee.sh flash   - Compile and flash the ESP32     echo -e "To view micro-ROS agent logs: ${GREEN}screen -r $AGENT_SCREEN${NC}"
+    echo -e "To view controller logs: ${GREEN}screen -r $NODE_SCREEN${NC}"
+    echo -e "To view visualizer logs: ${GREEN}screen -r $VISUALIZER_SCREEN${NC}"
+    echo -e "To view kinematics controller logs: ${GREEN}screen -r $KINEMATICS_SCREEN${NC}"
+    echo -e "To view servo commander logs: ${GREEN}screen -r $SERVO_COMMANDER_SCREEN${NC}"
+    echo -e "To detach from a screen session: Press ${GREEN}Ctrl+A${NC} followed by ${GREEN}D${NC}"are
 #
 
 # ANSI color codes for prettier output
@@ -33,6 +38,7 @@ AGENT_SCREEN="weefee_microros_agent"
 NODE_SCREEN="weefee_controller"
 VISUALIZER_SCREEN="weefee_visualizer"
 KINEMATICS_SCREEN="weefee_kinematics"
+SERVO_COMMANDER_SCREEN="weefee_servo_commander"
 
 # Print banner
 echo -e "${BLUE}=======================================${NC}"
@@ -240,6 +246,14 @@ stop_components() {
         echo -e "No kinematics controller screen session found."
     fi
     
+    if screen -list | grep -q $SERVO_COMMANDER_SCREEN; then
+        echo -e "Terminating servo commander screen session..."
+        screen -S $SERVO_COMMANDER_SCREEN -X quit
+        echo -e "${GREEN}Servo commander screen session terminated.${NC}"
+    else
+        echo -e "No servo commander screen session found."
+    fi
+    
     # Also kill any stray processes
     EXISTING_AGENT=$(pgrep -f "micro_ros_agent")
     if [ ! -z "$EXISTING_AGENT" ]; then
@@ -278,6 +292,16 @@ stop_components() {
         sleep 1
         if ps -p $EXISTING_KINEMATICS > /dev/null; then
             kill -9 $EXISTING_KINEMATICS 2>/dev/null
+        fi
+    fi
+    
+    EXISTING_SERVO_COMMANDER=$(pgrep -f "servo_commander")
+    if [ ! -z "$EXISTING_SERVO_COMMANDER" ]; then
+        echo -e "Found stray servo commander process (PID: $EXISTING_SERVO_COMMANDER), terminating..."
+        kill $EXISTING_SERVO_COMMANDER 2>/dev/null
+        sleep 1
+        if ps -p $EXISTING_SERVO_COMMANDER > /dev/null; then
+            kill -9 $EXISTING_SERVO_COMMANDER 2>/dev/null
         fi
     fi
     
@@ -336,6 +360,27 @@ ros2 run weefee_node quadruped_kinematics_controller
 EOF
     chmod +x $KINEMATICS_SCRIPT
 
+    # Create a startup script for the servo commander
+    SERVO_COMMANDER_SCRIPT="/tmp/weefee_servo_commander_start.sh"
+    cat > $SERVO_COMMANDER_SCRIPT << EOF
+#!/bin/bash
+source /opt/ros/jazzy/setup.bash
+source $ROS2_WS/install/setup.bash
+echo "Starting Weefee servo commander..."
+sleep 3  # Wait for agent to initialize
+echo "Running: ros2 run weefee_node servo_commander"
+# Lister les topics avant de lancer le nœud
+echo "Topics avant lancement:"
+ros2 topic list
+
+# Lancer le nœud avec plus de logs
+ros2 run weefee_node servo_commander --ros-args --log-level debug
+
+# Cette ligne ne sera jamais atteinte car ros2 run bloque, mais au cas où
+echo "Après lancement du nœud servo_commander"
+EOF
+    chmod +x $SERVO_COMMANDER_SCRIPT
+
     # Launch micro-ROS agent in a screen session
     echo -e "\n${YELLOW}Starting micro-ROS agent in screen session '$AGENT_SCREEN'...${NC}"
     screen -dmS $AGENT_SCREEN $AGENT_SCRIPT
@@ -389,6 +434,21 @@ EOF
         exit 1
     fi
     echo -e "${GREEN}Weefee kinematics controller started in screen session.${NC}"
+    
+    # Launch ROS2 servo commander node in a screen session
+    echo -e "\n${YELLOW}Starting Weefee servo commander in screen session '$SERVO_COMMANDER_SCREEN'...${NC}"
+    screen -dmS $SERVO_COMMANDER_SCREEN $SERVO_COMMANDER_SCRIPT
+
+    # Check if servo commander screen session was created
+    if ! screen -list | grep -q $SERVO_COMMANDER_SCREEN; then
+        echo -e "${RED}Failed to start Weefee servo commander screen session.${NC}"
+        screen -S $AGENT_SCREEN -X quit
+        screen -S $NODE_SCREEN -X quit
+        screen -S $VISUALIZER_SCREEN -X quit
+        screen -S $KINEMATICS_SCREEN -X quit
+        exit 1
+    fi
+    echo -e "${GREEN}Weefee servo commander started in screen session.${NC}"
 
     echo -e "\n${GREEN}All components started successfully in screen sessions!${NC}"
     echo -e "${BLUE}=======================================${NC}"
@@ -450,7 +510,15 @@ fi
 # Source ROS2 environment
 echo -e "\n${YELLOW}Sourcing ROS2 environment...${NC}"
 source /opt/ros/jazzy/setup.bash 
-source "$ROS2_WS/install/setup.bash"
+# Vérifier si le fichier setup.bash existe avant de le sourcer
+if [ -f "$ROS2_WS/install/setup.bash" ]; then
+    source "$ROS2_WS/install/setup.bash"
+else
+    echo -e "${RED}Le fichier $ROS2_WS/install/setup.bash n'existe pas.${NC}"
+    echo -e "${YELLOW}Il faut d'abord compiler le workspace ROS2 avec:${NC}"
+    echo -e "${GREEN}cd $ROS2_WS && colcon build${NC}"
+    exit 1
+fi
 
 # Start components
 start_components
