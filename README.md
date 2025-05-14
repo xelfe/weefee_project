@@ -19,6 +19,37 @@ This affordable and accessible quadruped platform provides an excellent foundati
 - **Body Position & Orientation Control** - Full 6DOF body manipulation
 - **Battery Monitoring System** - Real-time battery tracking with safety features
 - **ROS2 Visualization** - 3D visualization in RViz
+- **Optimized ESP32 Communication** - Efficient single-channel communication with diagnostic capabilities
+
+## 🧠 System Architecture
+
+The system operates using two main communication components:
+1. **ROS2 Node (servo_commander)**: Controls the robot via a single topic (`/robot_command`) and provides diagnostics via the `/servo_angles` topic for visualization.
+2. **ESP32 Firmware**: Handles servo control, kinematics, and movement patterns.
+
+### Communication Flow
+
+```
+[ROS2 Node] -- /robot_command --> [ESP32] -- robot actions --> [Physical Robot]
+    |                               |
+    |                               |
+    v                               v
+[Diagnostics & Visualization]   [Status Updates]
+      (/servo_angles)           (/robot_status)
+```
+
+This optimized architecture uses a single primary command channel (`/robot_command`) rather than multiple separate channels, reducing overhead on the ESP32 and improving overall performance.
+
+## 🔄 Recent Optimizations
+
+The communication system has been significantly improved:
+
+- **Reduced Channel Complexity**: Consolidation of multiple message channels into a single robust command path
+- **Improved ESP32 Performance**: Removal of redundant subscriptions, freeing up resources for critical operations
+- **Enhanced Visualization**: Maintained diagnostic capabilities while reducing ESP32 overhead by moving visualization publishing to the ROS2 side
+- **Seamless Command Handling**: Unified command handling via the `/robot_command` topic with consistent methods for all operations
+
+Benefits include better responsiveness, reduced resource consumption, and a more maintainable codebase. For details, see the [ESP32 Optimization](https://github.com/xelfe/weefee_project/wiki/ESP32-Optimization) documentation.
 
 ## 🚀 Quick Start
 
@@ -84,6 +115,7 @@ For detailed documentation, including installation instructions, code structure,
 - [Command Reference](https://github.com/xelfe/weefee_project/wiki/Command-Reference)
 - [Kinematics Documentation](https://github.com/xelfe/weefee_project/wiki/Kinematics)
 - [Battery Monitoring System](https://github.com/xelfe/weefee_project/wiki/Battery-Monitoring)
+- [ESP32 Optimization](https://github.com/xelfe/weefee_project/wiki/ESP32-Optimization)
 
 ## 📖 Basic Commands
 
@@ -101,12 +133,20 @@ ros2 topic pub --once /robot_command std_msgs/msg/String "{data: 'stop'}"
 
 # Calibration mode for assembly (sets servos to 90°, 45°, 90° positions)
 ros2 topic pub --once /robot_command std_msgs/msg/String "{data: 'calibrate'}"
+
+# Send direct servo positions (12 angles, one for each servo)
+ros2 topic pub --once /robot_command std_msgs/msg/String "{data: 'servo:90,45,90,90,45,90,90,45,90,90,45,90'}"
+
+# View servo angles during operation (diagnostic visualization)
+ros2 topic echo /servo_angles
 ```
 
 ## 🛠️ Project Structure
 
 - **espidf/** – ESP32 firmware with micro-ROS integration
+  - **weefee_esp32/main/** - Core ESP32 code with optimized ROS2 communication
 - **ros2_ws/** – ROS2 workspace with control nodes
+  - **src/weefee_node/src/servo_commander.cpp** - Main controller with unified command interface
 
 ## 📄 License
 
@@ -118,4 +158,4 @@ This project is developed collaboratively with the assistance of AI (GitHub Copi
 
 ## 🔄 Last Updated
 
-May 9, 2025
+May 13, 2025

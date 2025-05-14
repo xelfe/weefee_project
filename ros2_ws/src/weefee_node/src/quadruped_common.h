@@ -22,48 +22,10 @@
  * SOFTWARE.
  */
 
-#ifndef QUADRUPED_KINEMATICS_H
-#define QUADRUPED_KINEMATICS_H
+#ifndef QUADRUPED_COMMON_H
+#define QUADRUPED_COMMON_H
 
-#include <stdint.h>
-#include <stdlib.h>
-#include <stdbool.h>
-#include <math.h>
-#include "esp_err.h"
-
-// Structure representing a 3D position
-typedef struct {
-    float x;
-    float y;
-    float z;
-} vec3_t;
-
-// Structure for orientation in Euler angles
-typedef struct {
-    float roll;
-    float pitch;
-    float yaw;
-} orientation_t;
-
-// Structure representing a robot leg
-typedef struct {
-    // Servo IDs (coxa, femur, tibia)
-    int servo_ids[3];
-    
-    // Leg dimensions (segment lengths)
-    float coxa_length;
-    float femur_length;
-    float tibia_length;
-    
-    // Position of the leg mounting point relative to robot center
-    vec3_t mounting_position;
-    
-    // Current foot position
-    vec3_t foot_position;
-    
-    // Current joint angles
-    float angles[3];
-} leg_t;
+#include <cmath>
 
 // Constants for leg identification
 #define LEG_FRONT_RIGHT   0
@@ -78,10 +40,51 @@ typedef struct {
 #define JOINT_TIBIA   2
 #define JOINT_COUNT   3
 
-// Kinematic function prototypes
-esp_err_t inverse_kinematics(leg_t *leg, const vec3_t *target_pos, float angles_out[3]);
-void forward_kinematics(const leg_t *leg, const float angles[3], vec3_t *position_out);
-void init_kinematics(void);
-void set_robot_dimensions(float body_length, float body_width, float coxa_length, float femur_length, float tibia_length);
+namespace weefee {
 
-#endif // QUADRUPED_KINEMATICS_H
+/**
+ * @brief 3D Vector structure - represents positions in 3D space
+ * 
+ * This structure corresponds to vec3_t in the ESP32 code
+ */
+struct Vec3 {
+    float x = 0.0f;
+    float y = 0.0f;
+    float z = 0.0f;
+};
+
+/**
+ * @brief Orientation structure - represents orientation in Euler angles
+ * 
+ * This structure corresponds to orientation_t in the ESP32 code
+ */
+struct Orientation {
+    float roll = 0.0f;
+    float pitch = 0.0f;
+    float yaw = 0.0f;
+};
+
+/**
+ * @brief Leg structure - represents a single robot leg with its dimensions and state
+ * 
+ * This structure corresponds to leg_t in the ESP32 code
+ */
+struct Leg {
+    // Joint angles in degrees
+    float angles[3] = {90.0f, 90.0f, 90.0f};
+    
+    // Mounting position relative to body center
+    Vec3 mounting_position;
+    
+    // Current foot position
+    Vec3 foot_position;
+    
+    // Leg dimensions
+    float coxa_length = 30.0f;
+    float femur_length = 70.0f;
+    float tibia_length = 90.0f;
+};
+
+} // namespace weefee
+
+#endif // QUADRUPED_COMMON_H

@@ -58,7 +58,7 @@ install(TARGETS
 
 # Install header files
 install(
-  FILES src/quadruped_inverse_kinematics.h
+  FILES src/quadruped_inverse_kinematics.h src/quadruped_common.h
   DESTINATION include/${PROJECT_NAME}
 )
 

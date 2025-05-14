@@ -29,7 +29,6 @@
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "quadruped_robot.h"
-#include "quadruped_kinematics.h"
 #include "servo_controller.h"
 #include "sdkconfig.h"
 
@@ -56,6 +55,19 @@ static const int servo_mapping[LEG_COUNT][JOINT_COUNT] = {
 // Forward declarations
 static void robot_update_with_flag(bool positions_changed);
 
+// Replacement for init_kinematics (empty function as it's no longer needed)
+static void robot_init_kinematics(void) {
+    ESP_LOGI(TAG, "Kinematics initialized (stub - calculations done by ROS2)");
+}
+
+// Replacement for set_robot_dimensions
+static void robot_set_dimensions(int body_length, int body_width, 
+                                int coxa_length, int femur_length, int tibia_length) {
+    ESP_LOGI(TAG, "Robot dimensions set: body=%dx%d mm, coxa=%d mm, femur=%d mm, tibia=%d mm",
+             body_length, body_width, coxa_length, femur_length, tibia_length);
+    // We only log the dimensions now, as all calculations are done by ROS2
+}
+
 // Robot initialization
 void robot_init(void) {
     ESP_LOGI(TAG, "Initializing quadruped robot");
@@ -64,7 +76,7 @@ void robot_init(void) {
     setup_servos();
     
     // Initialize kinematics
-    init_kinematics();
+    robot_init_kinematics();
     
     // Robot dimensions are now configured through menuconfig (as integers in millimeters)
     int body_length = CONFIG_ROBOT_BODY_LENGTH;
@@ -73,8 +85,7 @@ void robot_init(void) {
     int femur_length = CONFIG_DEFAULT_FEMUR_LENGTH;
     int tibia_length = CONFIG_DEFAULT_TIBIA_LENGTH;
     
-    // Configure kinematics dimensions (keeping values in millimeters)
-    set_robot_dimensions(body_length, body_width, coxa_length, femur_length, tibia_length);
+    // Log robot dimensions (calculations now done by ROS2)
     
     // Initialize legs
     // Leg mounting positions relative to body center (in millimeters)
@@ -243,24 +254,16 @@ esp_err_t robot_set_leg_position(int leg_index, const vec3_t *position) {
         return ESP_ERR_INVALID_ARG;
     }
     
-    // Calculate inverse kinematics to determine angles
-    float angles[3];
-    esp_err_t result = inverse_kinematics(&robot.legs[leg_index], position, angles);
+    // Just store the target position, but don't calculate angles
+    // since that's now handled by ROS2
+    robot.legs[leg_index].foot_position = *position;
     
-    if (result == ESP_OK) {
-        // Update leg angles
-        for (int i = 0; i < JOINT_COUNT; i++) {
-            robot.legs[leg_index].angles[i] = angles[i];
-        }
-        
-        // Update foot position
-        robot.legs[leg_index].foot_position = *position;
-        
-        // Update servos
-        robot_map_angles_to_servos();
-    }
+    // Note: We're not calculating leg angles locally anymore as this is handled by ROS2
+    // Those values will be received directly from ROS2 via servo_angles_callback
+    ESP_LOGD(TAG, "Leg %d target position set to [%.2f, %.2f, %.2f] (angles will be set by ROS2)",
+             leg_index, position->x, position->y, position->z);
     
-    return result;
+    return ESP_OK;
 }
 
 // Put robot in standing position
@@ -373,9 +376,8 @@ static void robot_update_with_flag(bool positions_changed) {
     uint32_t current_time = xTaskGetTickCount() * portTICK_PERIOD_MS;
     
     if (robot.is_walking) {
-        // Update walk cycle (implement according to chosen gait)
-        
-        // Advance cycle by 1%
+        // Update walk cycle progress for state tracking
+        // This is mainly for ROS2 to know where we are in the cycle
         robot.walk_cycle_progress += 0.01f;
         if (robot.walk_cycle_progress >= 1.0f) {
             robot.walk_cycle_progress = 0.0f;
@@ -386,14 +388,13 @@ static void robot_update_with_flag(bool positions_changed) {
             }
         }
         
-        // Walking always requires position updates
-        positions_changed = true;
+        // Note: We're not calculating leg positions anymore as ROS2 handles that
+        // We just update the cycle progress for synchronization
     }
     
-    // Update servos only when positions have changed
-    if (positions_changed) {
-        robot_map_angles_to_servos();
-    }
+    // We only update servos when ROS2 sends us new angles through servo_angles_callback
+    // So we don't need to call robot_map_angles_to_servos() here anymore
+    // positions_changed flag is now ignored as it's handled by the ROS2 callback
 }
 
 // Update robot state
