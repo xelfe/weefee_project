@@ -10,6 +10,7 @@
 #   ./weefee.sh launch           - Start all components
 #   ./weefee.sh stop             - Stop all components
 #   ./weefee.sh restart          - Restart all components
+#   ./weefee.sh rviz             - Launch RViz visualization tool
 #   ./weefee.sh flash            - Compile and flash the ESP32
 #   ./weefee.sh test             - Run all tests
 #   ./weefee.sh test communication - Test communication
@@ -115,10 +116,20 @@ launch_components() {
 stop_components() {
     display_header "STOPPING WEEFEE COMPONENTS"
     
-    # In stop_components() function, add:
+    # Stop RViz and associated components
     if screen -list | grep -q "weefee_rviz"; then
         screen -S weefee_rviz -X quit
         echo -e "${GREEN}RViz screen session terminated.${NC}"
+    fi
+    
+    if screen -list | grep -q "weefee_model_pub"; then
+        screen -S weefee_model_pub -X quit
+        echo -e "${GREEN}Model publisher screen session terminated.${NC}"
+    fi
+    
+    if screen -list | grep -q "weefee_robot_state"; then
+        screen -S weefee_robot_state -X quit
+        echo -e "${GREEN}Robot state publisher screen session terminated.${NC}"
     fi
       
     # Check if the sessions exist and terminate them
@@ -171,18 +182,65 @@ kill_process() {
     fi
 }
 
-# Launch RViz for visualization
+# Launch RViz for visualization with URDF model support
 launch_rviz() {
     display_header "LAUNCHING RVIZ VISUALIZATION"
     
     # Source ROS2 environment
     source_ros2
     
-    echo -e "${YELLOW}Starting RViz with quadruped configuration...${NC}"
-    screen -dmS weefee_rviz bash -c "source /opt/ros/jazzy/setup.bash && source $ROS2_WS/install/setup.bash && ros2 run rviz2 rviz2 -d $ROS2_WS/src/weefee_node/config/quadruped.rviz; exec bash"
+    # Check if the dedicated launch file exists (preferred method)
+    local launch_file="$ROS2_WS/src/weefee_node/launch/display_model.launch.py"
     
-    echo -e "${GREEN}RViz started successfully.${NC}"
+    if [ -f "$launch_file" ]; then
+        echo -e "${YELLOW}Starting RViz with the display model launch file...${NC}"
+        # Launch file handles RViz, robot_state_publisher and model_publisher in one command
+        screen -dmS weefee_rviz bash -c "source /opt/ros/jazzy/setup.bash && source $ROS2_WS/install/setup.bash && ros2 launch weefee_node display_model.launch.py; exec bash"
+    else
+        # Fallback to direct RViz launch
+        echo -e "${YELLOW}Launch file not found. Checking for RViz configuration...${NC}"
+        
+        # Try the correct path first
+        local rviz_config="$ROS2_WS/src/weefee_node/rviz/model_display.rviz"
+        
+        if [ ! -f "$rviz_config" ]; then
+            # Fall back to the old path
+            rviz_config="$ROS2_WS/src/weefee_node/config/quadruped.rviz"
+        fi
+        
+        if [ ! -f "$rviz_config" ]; then
+            echo -e "${YELLOW}RViz configuration file not found. Starting with default configuration...${NC}"
+            screen -dmS weefee_rviz bash -c "source /opt/ros/jazzy/setup.bash && source $ROS2_WS/install/setup.bash && ros2 run rviz2 rviz2; exec bash"
+            
+            echo -e "${YELLOW}Warning: URDF model may not appear without proper configuration.${NC}"
+            echo -e "${YELLOW}Launch the model publisher separately with:${NC}"
+            echo -e "${GREEN}ros2 run weefee_node quadruped_model_publisher${NC}"
+        else
+            echo -e "${YELLOW}Starting RViz with quadruped configuration...${NC}"
+            screen -dmS weefee_rviz bash -c "source /opt/ros/jazzy/setup.bash && source $ROS2_WS/install/setup.bash && ros2 run rviz2 rviz2 -d $rviz_config; exec bash"
+            
+            # Also start the model publisher in a separate screen
+            echo -e "${YELLOW}Starting model publisher (processes servo commands for RViz)...${NC}"
+            screen -dmS weefee_model_pub bash -c "source /opt/ros/jazzy/setup.bash && source $ROS2_WS/install/setup.bash && ros2 run weefee_node quadruped_model_publisher; exec bash"
+            
+            # And start the robot state publisher (required for URDF visualization)
+            echo -e "${YELLOW}Starting robot state publisher (processes URDF model)...${NC}"
+            
+            # Get the path to the URDF file
+            local urdf_file="$ROS2_WS/src/weefee_node/urdf/weefee_model.urdf"
+            if [ -f "$urdf_file" ]; then
+                screen -dmS weefee_robot_state bash -c "source /opt/ros/jazzy/setup.bash && source $ROS2_WS/install/setup.bash && ros2 run robot_state_publisher robot_state_publisher --ros-args -p robot_description:=\"\$(cat $urdf_file)\"; exec bash"
+            else
+                echo -e "${RED}URDF file not found at: $urdf_file${NC}"
+            fi
+        fi
+    fi
+    
+    echo -e "${GREEN}RViz components started successfully.${NC}"
     echo -e "To view RViz screen session: ${GREEN}screen -r weefee_rviz${NC}"
+    echo -e "To view model publisher logs: ${GREEN}screen -r weefee_model_pub${NC}"
+    echo -e "To view robot state publisher logs: ${GREEN}screen -r weefee_robot_state${NC}"
+    echo -e "To detach from screen session: Press ${GREEN}Ctrl+A${NC} followed by ${GREEN}D${NC}"
 }
 
 # Flash ESP32
@@ -509,6 +567,7 @@ Available commands:
   launch           - Start all components
   stop             - Stop all components
   restart          - Restart all components
+  rviz             - Launch RViz visualization tool
   flash            - Compile and flash the ESP32
   test             - Run all tests
   test communication - Test communication
@@ -522,6 +581,7 @@ Available commands:
 
 Examples:
   ./weefee.sh launch       - Start the complete system
+  ./weefee.sh rviz         - Launch RViz for 3D visualization
   ./weefee.sh demo servo   - Demonstrate servo control
   ./weefee.sh test         - Run all tests
 EOF
